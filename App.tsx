@@ -285,8 +285,19 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const handleGoogleLogin = async () => {
     try {
       await signInWithGoogle();
-    } catch (error) {
-      alert('로그인에 실패했습니다.');
+    } catch (error: any) {
+      console.error("Login Error:", error);
+      let message = '로그인에 실패했습니다.';
+      if (error.code === 'auth/unauthorized-domain') {
+        message = '승인되지 않은 도메인입니다. Firebase 콘솔에서 현재 도메인을 승인된 도메인 목록에 추가해야 합니다.';
+      } else if (error.code === 'auth/popup-blocked') {
+        message = '팝업이 차단되었습니다. 브라우저 설정에서 팝업을 허용해 주세요.';
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        message = '로그인 창이 닫혔습니다.';
+      } else {
+        message = `로그인 오류: ${error.message || error.code || '알 수 없는 오류'}`;
+      }
+      alert(message);
     }
   };
 
