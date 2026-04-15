@@ -1,0 +1,140 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Settings",
+      "description": "User-specific settings and global state",
+      "type": "object",
+      "properties": {
+        "initialPortfolio": { "type": "object", "description": "Target weights for stocks" },
+        "alertThresholds": { "type": "object", "description": "Rebalancing alert thresholds" },
+        "backgroundFetchInterval": { "type": "number" },
+        "showSummary": { "type": "boolean" },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "homeScreenPreference": { "type": "string", "enum": ["HOME", "HOLDINGS_STATUS"] }
+      }
+    },
+    "Broker": {
+      "title": "Broker",
+      "description": "Stock broker information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Account": {
+      "title": "Account",
+      "description": "Brokerage account",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "brokerId": { "type": "string" }
+      },
+      "required": ["name", "brokerId"]
+    },
+    "BankAccount": {
+      "title": "BankAccount",
+      "description": "Bank account for cash transfers",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "bankName": { "type": "string" }
+      },
+      "required": ["name", "bankName"]
+    },
+    "Stock": {
+      "title": "Stock",
+      "description": "Stock or ETF information",
+      "type": "object",
+      "properties": {
+        "ticker": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "isPortfolio": { "type": "boolean" },
+        "isEtf": { "type": "boolean" },
+        "expenseRatio": { "type": "number" }
+      },
+      "required": ["ticker", "name", "category"]
+    },
+    "Trade": {
+      "title": "Trade",
+      "description": "Stock buy/sell transaction",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "accountId": { "type": "string" },
+        "stockId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "tradeType": { "type": "string", "enum": ["BUY", "SELL"] },
+        "tradeMethod": { "type": "string" },
+        "goalId": { "type": "string" }
+      },
+      "required": ["date", "accountId", "stockId", "quantity", "price", "tradeType"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Account deposit/withdrawal/dividend",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "accountId": { "type": "string" },
+        "amount": { "type": "number" },
+        "transactionType": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "DIVIDEND"] },
+        "counterpartyAccountId": { "type": "string" },
+        "stockId": { "type": "string" },
+        "goalId": { "type": "string" }
+      },
+      "required": ["date", "accountId", "amount", "transactionType"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "Investment goal",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "creationDate": { "type": "string", "format": "date" },
+        "targetDate": { "type": "string", "format": "date" },
+        "goalType": { "type": "string", "enum": ["amount", "shares"] },
+        "targetAmount": { "type": "number" },
+        "targetShares": { "type": "object" }
+      },
+      "required": ["name", "creationDate", "goalType"]
+    },
+    "MonthlyValue": {
+      "title": "MonthlyValue",
+      "description": "Monthly account valuation",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "totalValue": { "type": "number" }
+      },
+      "required": ["date", "totalValue"]
+    },
+    "HistoricalGain": {
+      "title": "HistoricalGain",
+      "description": "One-time historical gain/loss record",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "accountId": { "type": "string" },
+        "stockName": { "type": "string" },
+        "realizedPnl": { "type": "number" },
+        "note": { "type": "string" }
+      },
+      "required": ["date", "accountId", "stockName", "realizedPnl"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User settings" },
+    "/users/{userId}/brokers/{brokerId}": { "schema": "Broker", "description": "Brokers" },
+    "/users/{userId}/accounts/{accountId}": { "schema": "Account", "description": "Accounts" },
+    "/users/{userId}/bankAccounts/{bankAccountId}": { "schema": "BankAccount", "description": "Bank Accounts" },
+    "/users/{userId}/stocks/{stockId}": { "schema": "Stock", "description": "Stocks" },
+    "/users/{userId}/trades/{tradeId}": { "schema": "Trade", "description": "Trades" },
+    "/users/{userId}/transactions/{transactionId}": { "schema": "Transaction", "description": "Transactions" },
+    "/users/{userId}/goals/{goalId}": { "schema": "Goal", "description": "Goals" },
+    "/users/{userId}/monthlyValues/{valueId}": { "schema": "MonthlyValue", "description": "Monthly Values" },
+    "/users/{userId}/historicalGains/{gainId}": { "schema": "HistoricalGain", "description": "Historical Gains" }
+  }
+}

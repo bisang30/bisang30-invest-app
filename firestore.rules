@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}
+    // Fields: initialPortfolio (map), alertThresholds (map), backgroundFetchInterval (number), showSummary (bool), theme (string), homeScreenPreference (string)
+    //
+    // Collection: /users/{userId}/brokers/{brokerId}
+    // Fields: name (string)
+    //
+    // Collection: /users/{userId}/accounts/{accountId}
+    // Fields: name (string), brokerId (string)
+    //
+    // Collection: /users/{userId}/bankAccounts/{bankAccountId}
+    // Fields: name (string), bankName (string)
+    //
+    // Collection: /users/{userId}/stocks/{stockId}
+    // Fields: ticker (string), name (string), category (string), isPortfolio (bool), isEtf (bool), expenseRatio (number)
+    //
+    // Collection: /users/{userId}/trades/{tradeId}
+    // Fields: date (string), accountId (string), stockId (string), quantity (number), price (number), tradeType (string), tradeMethod (string), goalId (string)
+    //
+    // Collection: /users/{userId}/transactions/{transactionId}
+    // Fields: date (string), accountId (string), amount (number), transactionType (string), counterpartyAccountId (string), stockId (string), goalId (string)
+    //
+    // Collection: /users/{userId}/goals/{goalId}
+    // Fields: name (string), creationDate (string), targetDate (string), goalType (string), targetAmount (number), targetShares (map)
+    //
+    // Collection: /users/{userId}/monthlyValues/{valueId}
+    // Fields: date (string), totalValue (number)
+    //
+    // Collection: /users/{userId}/historicalGains/{gainId}
+    // Fields: date (string), accountId (string), stockName (string), realizedPnl (number), note (string)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function hasOnlyAllowedFields(data, allowedFields) {
+      return data.keys().hasOnly(allowedFields);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && 
+        hasOnlyAllowedFields(request.resource.data, ['initialPortfolio', 'alertThresholds', 'backgroundFetchInterval', 'showSummary', 'theme', 'homeScreenPreference']);
+
+      match /brokers/{brokerId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && request.resource.data.name is string && request.resource.data.name.size() < 100;
+        allow delete: if isOwner(userId);
+      }
+
+      match /accounts/{accountId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && request.resource.data.name is string && request.resource.data.brokerId is string;
+        allow delete: if isOwner(userId);
+      }
+
+      match /bankAccounts/{bankAccountId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && request.resource.data.name is string && request.resource.data.bankName is string;
+        allow delete: if isOwner(userId);
+      }
+
+      match /stocks/{stockId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && request.resource.data.ticker is string && request.resource.data.name is string;
+        allow delete: if isOwner(userId);
+      }
+
+      match /trades/{tradeId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDateString(request.resource.data.date) && request.resource.data.quantity is number && request.resource.data.price is number;
+        allow delete: if isOwner(userId);
+      }
+
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDateString(request.resource.data.date) && request.resource.data.amount is number;
+        allow delete: if isOwner(userId);
+      }
+
+      match /goals/{goalId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && request.resource.data.name is string && isValidDateString(request.resource.data.creationDate);
+        allow delete: if isOwner(userId);
+      }
+
+      match /monthlyValues/{valueId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDateString(request.resource.data.date) && request.resource.data.totalValue is number;
+        allow delete: if isOwner(userId);
+      }
+
+      match /historicalGains/{gainId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDateString(request.resource.data.date) && request.resource.data.realizedPnl is number;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

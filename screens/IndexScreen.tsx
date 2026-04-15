@@ -8,6 +8,9 @@ import { Broker, Account, Stock, InitialPortfolio, PortfolioCategory, Trade, Acc
 import { PORTFOLIO_CATEGORIES, DATA_VERSION } from '../constants';
 import { exportAllData } from '../services/exportService';
 import * as XLSX from 'xlsx';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { collection, writeBatch, doc, setDoc } from 'firebase/firestore';
+import { User } from 'firebase/auth';
 import { 
   ChevronUpIcon, ChevronDownIcon, BuildingOffice2Icon, IdentificationIcon, BuildingLibraryIcon,
   ChartBarIcon, ChartPieIcon, CircleStackIcon, LockClosedIcon, Cog8ToothIcon, BellAlertIcon, FlagIcon
@@ -93,6 +96,7 @@ interface IndexScreenProps {
   setHomeScreenPreference: React.Dispatch<React.SetStateAction<'HOME' | 'HOLDINGS_STATUS'>>;
   investmentGoals: InvestmentGoal[];
   setInvestmentGoals: React.Dispatch<React.SetStateAction<InvestmentGoal[]>>;
+  user: User | null;
 }
 
 interface SettingsSectionProps {
@@ -150,6 +154,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   alertThresholds, setAlertThresholds,
   homeScreenPreference, setHomeScreenPreference,
   investmentGoals, setInvestmentGoals,
+  user,
 }) => {
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState('');
@@ -815,6 +820,33 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           return xlsxLib.utils.sheet_to_json(ws);
       };
 
+      const BATCH_SIZE = 400; // Firestore batch limit is 500, using 400 for safety
+
+      const saveToFirebase = async (collectionName: string, dataArray: any[]) => {
+        if (!user) return;
+        const userRef = doc(db, 'users', user.uid);
+        const colRef = collection(userRef, collectionName);
+        
+        for (let i = 0; i < dataArray.length; i += BATCH_SIZE) {
+          const batch = writeBatch(db);
+          const chunk = dataArray.slice(i, i + BATCH_SIZE);
+          chunk.forEach(item => {
+            const { id, ...rest } = item;
+            // Remove undefined fields as Firestore doesn't support them
+            const cleanData = Object.fromEntries(
+              Object.entries(rest).filter(([_, v]) => v !== undefined)
+            );
+            const docRef = doc(colRef, id);
+            batch.set(docRef, cleanData);
+          });
+          try {
+            await batch.commit();
+          } catch (e) {
+            handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/${collectionName}`);
+          }
+        }
+      };
+
       setImportStatus('데이터 변환 중 (1/13): 증권사...');
       const brokersData = safeSheetToJSON(workbook, '증권사');
       const newBrokers: Broker[] = [];
@@ -827,6 +859,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               brokerNameToIdMap.set(name, newId);
           }
       });
+      if (user) await saveToFirebase('brokers', newBrokers);
       
       setImportStatus('데이터 변환 중 (2/13): 은행계좌...');
       const bankAccountsData = safeSheetToJSON(workbook, '은행계좌');
@@ -844,6 +877,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               }
           }
       });
+      if (user) await saveToFirebase('bankAccounts', newBankAccounts);
 
       setImportStatus('데이터 변환 중 (3/13): 증권계좌...');
       const accountsData = safeSheetToJSON(workbook, '증권계좌');
@@ -859,6 +893,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               accountNameToIdMap.set(name, newId);
           }
       });
+      if (user) await saveToFirebase('accounts', newAccounts);
       
       setImportStatus('데이터 변환 중 (4/13): 종목...');
       const stocksData = safeSheetToJSON(workbook, '종목');
@@ -878,6 +913,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               stockTickerToIdMap.set(ticker, newId);
           }
       });
+      if (user) await saveToFirebase('stocks', newStocks);
       
       setImportStatus('데이터 변환 중 (5/13): 투자 목표...');
       const goalsData = safeSheetToJSON(workbook, '투자 목표');
@@ -919,6 +955,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           }
         }
       });
+      if (user) await saveToFirebase('goals', newGoals);
 
       setImportStatus('데이터 변환 중 (7/13): 포트폴리오...');
       const portfolioData = safeSheetToJSON(workbook, '포트폴리오');
@@ -957,6 +994,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
             });
         }
       });
+      if (user) await saveToFirebase('trades', newTrades);
       
       setImportStatus('데이터 변환 중 (9/13): 입출금 및 배당 기록...');
       const newTransactions: AccountTransaction[] = [];
@@ -1005,6 +1043,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               });
           }
       });
+      if (user) await saveToFirebase('transactions', newTransactions);
 
       setImportStatus('데이터 변환 중 (10/13): 월말결산...');
       const monthlyValuesData = safeSheetToJSON(workbook, '월말결산');
@@ -1021,6 +1060,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               });
           }
       });
+      if (user) await saveToFirebase('monthlyValues', newMonthlyValues);
 
       setImportStatus('데이터 변환 중 (11/13): 초기손익기록...');
       const historicalGainsData = safeSheetToJSON(workbook, '초기손익기록');
@@ -1041,6 +1081,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               });
           }
       });
+      if (user) await saveToFirebase('historicalGains', newHistoricalGains);
       
       setImportStatus('데이터 변환 중 (12/13): 리밸런싱 알림...');
       const alertThresholdsData = safeSheetToJSON(workbook, '리밸런싱알림설정');
@@ -1081,6 +1122,18 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               newShowSummary = settingValue === '예';
           }
       });
+
+      if (user) {
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+          initialPortfolio: newInitialPortfolio,
+          alertThresholds: newAlertThresholds,
+          backgroundFetchInterval: newBackgroundFetchInterval,
+          showSummary: newShowSummary,
+          theme: Theme.Light, // Default
+          homeScreenPreference: 'HOME' // Default
+        });
+      }
 
       const keysToClear = LOCAL_STORAGE_KEYS.filter(key => key !== 'theme' && key !== 'app-password');
       

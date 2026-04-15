@@ -1,12 +1,15 @@
 import React from 'react';
 import { Theme, Screen } from '../types';
-import { SunIcon, MoonIcon, PowerIcon } from './Icons';
+import { SunIcon, MoonIcon, PowerIcon, UserIcon } from './Icons';
+import { User } from 'firebase/auth';
 
 interface HeaderProps {
   theme: Theme;
   toggleTheme: () => void;
   currentScreen: Screen;
   onOpenExitModal: () => void;
+  user: User | null;
+  onLogin: () => void;
 }
 
 const screenTitles: Record<Screen, string> = {
@@ -21,15 +24,33 @@ const screenTitles: Record<Screen, string> = {
   [Screen.Rebalancing]: '포트폴리오 리밸런싱',
   [Screen.Menu]: '전체 메뉴',
   [Screen.HoldingsStatus]: '포트폴리오 가꾸기',
-  // FIX: Added missing GOAL_INVESTING to screenTitles
   [Screen.GoalInvesting]: '목표 달성',
 };
 
-const Header: React.FC<HeaderProps> = ({ theme, toggleTheme, currentScreen, onOpenExitModal }) => {
+const Header: React.FC<HeaderProps> = ({ theme, toggleTheme, currentScreen, onOpenExitModal, user, onLogin }) => {
   return (
     <header className="flex justify-between items-center mb-6">
       <h1 className="text-2xl font-bold text-light-text dark:text-dark-text">{screenTitles[currentScreen]}</h1>
       <div className="flex items-center gap-4">
+        {!user ? (
+          <button
+            onClick={onLogin}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-light-primary dark:bg-dark-primary text-white text-sm font-semibold shadow-md hover:opacity-90 transition-opacity"
+          >
+            <UserIcon className="w-4 h-4" />
+            로그인
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full border-2 border-light-primary" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                <UserIcon className="w-5 h-5 text-gray-500" />
+              </div>
+            )}
+          </div>
+        )}
         <button
           onClick={toggleTheme}
           className="p-2 rounded-full bg-light-card dark:bg-dark-card shadow-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"

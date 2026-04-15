@@ -1,7 +1,8 @@
 {
-  "name": "노후투자V2",
+  "name": "노후투자V2_1",
   "description": "노후를 위한 스마트한 투자 관리 솔루션. 포트폴리오 리밸런싱 및 자산 추적 기능을 제공합니다.",
   "requestFramePermissions": [],
   "C7": [],
-  "Xp": []
+  "Xp": [],
+  "majorCapabilities": []
 }

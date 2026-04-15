@@ -37,6 +37,13 @@ export const fetchStockPrices = async (tickers: string[]): Promise<FetchStockPri
             throw new Error(`API error: ${response.status}`);
         }
 
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            const text = await response.text();
+            console.error("Expected JSON but received:", text.substring(0, 100));
+            throw new Error("서버에서 올바른 형식(JSON)의 데이터를 보내지 않았습니다.");
+        }
+
         const data = await response.json();
         return {
             prices: data.prices || {},

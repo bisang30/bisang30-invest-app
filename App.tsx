@@ -20,7 +20,11 @@ import Button from './components/ui/Button';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { fetchStockPrices } from './services/stockPriceService';
 import { exportAllData } from './services/exportService';
-import { PORTFOLIO_CATEGORIES } from './constants';
+import { PORTFOLIO_CATEGORIES, DATA_VERSION } from './constants';
+import { auth, db, signInWithGoogle } from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { UserIcon } from './components/Icons';
 
 // Default Data for initial setup
 const defaultBrokerId = 'broker-mirae';
@@ -198,6 +202,8 @@ const calculateTWRR = (monthlyValues: MonthlyAccountValue[], transactions: Accou
 
 
 const App: React.FC<AppProps> = ({ onForceRemount }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [theme, setTheme] = useLocalStorage<Theme>('theme', Theme.Light);
   const [password, setPassword] = useLocalStorage<string | null>('app-password', '9635');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!password);
@@ -225,6 +231,64 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
 
 
   const [animationClass, setAnimationClass] = useState('');
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      setIsAuthLoading(false);
+      
+      if (currentUser) {
+        // Sync data from Firestore to LocalStorage on login
+        setIsDataOperationInProgress(true);
+        try {
+          const userRef = doc(db, 'users', currentUser.uid);
+          const userSnap = await getDoc(userRef);
+          
+          if (userSnap.exists()) {
+            const settings = userSnap.data();
+            if (settings.initialPortfolio) setInitialPortfolio(settings.initialPortfolio);
+            if (settings.alertThresholds) setAlertThresholds(settings.alertThresholds);
+            if (settings.backgroundFetchInterval) setBackgroundFetchInterval(settings.backgroundFetchInterval);
+            if (settings.showSummary) setShowSummary(settings.showSummary);
+            if (settings.theme) setTheme(settings.theme);
+            if (settings.homeScreenPreference) setHomeScreenPreference(settings.homeScreenPreference);
+          }
+
+          const syncCollection = async (colName: string, setter: any) => {
+            const colRef = collection(db, 'users', currentUser.uid, colName);
+            const snap = await getDocs(colRef);
+            const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            if (data.length > 0) setter(data);
+          };
+
+          await Promise.all([
+            syncCollection('brokers', setBrokers),
+            syncCollection('accounts', setAccounts),
+            syncCollection('bankAccounts', setBankAccounts),
+            syncCollection('stocks', setStocks),
+            syncCollection('trades', setTrades),
+            syncCollection('transactions', setTransactions),
+            syncCollection('goals', setInvestmentGoals),
+            syncCollection('monthlyValues', setMonthlyValues),
+            syncCollection('historicalGains', setHistoricalGains),
+          ]);
+        } catch (error) {
+          console.error("Error syncing from Firestore:", error);
+        } finally {
+          setIsDataOperationInProgress(false);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      alert('로그인에 실패했습니다.');
+    }
+  };
 
   const swipeNavOrder = useMemo(() => {
     if (homeScreenPreference === Screen.Home) {
@@ -769,6 +833,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   }, [financialSummary, alertThresholds]);
 
   const renderScreen = () => {
+    if (isAuthLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-light-primary dark:border-dark-primary mb-4"></div>
+          <p>사용자 정보를 확인하는 중...</p>
+        </div>
+      );
+    }
+
     switch (currentScreen) {
       case Screen.Home:
         return <HomeScreen 
@@ -779,6 +852,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           monthlyValues={monthlyValues}
           transactions={mainPortfolioTransactions}
           accounts={accounts}
+          user={user}
         />;
       case Screen.StockStatus:
         return <StockStatusScreen 
@@ -869,6 +943,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             setAlertThresholds={setAlertThresholds}
             homeScreenPreference={homeScreenPreference}
             setHomeScreenPreference={setHomeScreenPreference}
+            user={user}
           />;
       case Screen.Menu:
         return <MenuScreen setCurrentScreen={navigateToScreen} />;
@@ -908,10 +983,22 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           toggleTheme={toggleTheme} 
           currentScreen={currentScreen} 
           onOpenExitModal={() => setIsExitModalOpen(true)}
+          user={user}
+          onLogin={handleGoogleLogin}
         />
         <main key={currentScreen} className={animationClass}>
           {renderScreen()}
         </main>
+
+        {isDataOperationInProgress && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-2xl flex flex-col items-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-light-primary dark:border-dark-primary mb-4"></div>
+              <p className="text-light-text dark:text-dark-text font-semibold">데이터 처리 중...</p>
+              <p className="text-sm text-light-secondary dark:text-dark-secondary mt-2">잠시만 기다려 주세요.</p>
+            </div>
+          </div>
+        )}
       </div>
       <BottomNav 
         currentScreen={currentScreen} 
