@@ -16,13 +16,13 @@
     "react-dom": "^19.2.0",
     "recharts": "^2.13.2",
     "tsx": "^4.21.0",
-    "xlsx": "latest"
+    "xlsx": "latest",
+    "vite": "^6.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@types/node": "^22.14.0"
   }
 }
