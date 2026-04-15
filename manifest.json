@@ -1,7 +1,7 @@
 
 {
-  "short_name": "투자 관리 앱",
-  "name": "Investment Management App V2.2.2",
+  "short_name": "노후투자V2",
+  "name": "노후투자V2",
   "icons": [
     {
       "src": "/icon.svg?v=2.2.2",
