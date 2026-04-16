@@ -1,5 +1,5 @@
 
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -13,13 +13,14 @@ interface State {
 /**
  * ErrorBoundary component to catch rendering errors in the component tree.
  */
-// FIX: Explicitly extending React.Component with Props and State interfaces ensures that base class properties like 'this.props' and 'this.state' are correctly inherited and recognized.
 class ErrorBoundary extends React.Component<Props, State> {
-  // FIX: Explicitly initialized state with typed State interface for better type safety and inference.
-  state: State = {
-    hasError: false,
-    error: null,
-  };
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Screen, Theme, TradeType, Account, Broker, Stock, Trade, AccountTransaction, BankAccount, InitialPortfolio, MonthlyAccountValue, PortfolioCategory, HistoricalGain, AlertThresholds, TransactionType, InvestmentGoal } from './types';
+import { Screen, Theme, TradeType, Account, Broker, Stock, Trade, AccountTransaction, BankAccount, InitialPortfolio, MonthlyAccountValue, PortfolioCategory, HistoricalGain, AlertThresholds, TransactionType, InvestmentGoal, RetirementGoal } from './types';
 import HomeScreen from './screens/HomeScreen';
 import StockStatusScreen from './screens/StockStatusScreen';
 import AccountStatusScreen from './screens/AccountStatusScreen';
@@ -11,7 +11,7 @@ import IndexScreen from './screens/IndexScreen';
 import RebalancingScreen from './screens/RebalancingScreen';
 import MenuScreen from './screens/MenuScreen';
 import HoldingsStatusScreen from './screens/HoldingsStatusScreen';
-import GoalInvestingScreen from './screens/GoalInvestingScreen';
+import RetirementGoalScreen from './screens/RetirementGoalScreen';
 import PasswordScreen from './screens/PasswordScreen';
 import BottomNav from './components/BottomNav';
 import Header from './components/Header';
@@ -201,6 +201,23 @@ const calculateTWRR = (monthlyValues: MonthlyAccountValue[], transactions: Accou
 };
 
 
+// Custom hook for auto-saving data to Firestore
+const useAutoSave = (key: string, data: any, user: any, isInitialSyncDone: boolean) => {
+  useEffect(() => {
+    if (!user || !isInitialSyncDone) return;
+    
+    const timeout = setTimeout(async () => {
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'appData', key), { data: JSON.stringify(data) });
+      } catch (e) {
+        console.error(`Auto-save failed for ${key}`, e);
+      }
+    }, 2000);
+    
+    return () => clearTimeout(timeout);
+  }, [data, user, isInitialSyncDone, key]);
+};
+
 const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -227,8 +244,9 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const [showSummary, setShowSummary] = useLocalStorage<boolean>('showSummary', true);
   const [historicalGains, setHistoricalGains] = useLocalStorage<HistoricalGain[]>('historicalGains', []);
   const [alertThresholds, setAlertThresholds] = useLocalStorage<AlertThresholds>('alertThresholds', DEFAULT_ALERT_THRESHOLDS);
-  const [homeScreenPreference, setHomeScreenPreference] = useLocalStorage<'HOME' | 'HOLDINGS_STATUS'>('homeScreenPreference', Screen.HoldingsStatus);
+  const [homeScreenPreference, setHomeScreenPreference] = useLocalStorage<'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING'>('homeScreenPreference', Screen.HoldingsStatus);
   const [investmentGoals, setInvestmentGoals] = useLocalStorage<InvestmentGoal[]>('investmentGoals', []);
+  const [retirementGoal, setRetirementGoal] = useLocalStorage<RetirementGoal | null>('retirementGoal', null);
 
 
   const [animationClass, setAnimationClass] = useState('');
@@ -253,6 +271,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             if (settings.showSummary) setShowSummary(settings.showSummary);
             if (settings.theme) setTheme(settings.theme);
             if (settings.homeScreenPreference) setHomeScreenPreference(settings.homeScreenPreference);
+            if (settings.retirementGoal) setRetirementGoal(settings.retirementGoal);
           }
 
           const syncCollection = async (colName: string, setter: any) => {
@@ -294,29 +313,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   }, []);
 
   // Auto-save hooks
-  const useAutoSave = (key: string, data: any) => {
-    useEffect(() => {
-      if (!user || !isInitialSyncDone) return;
-      const timeout = setTimeout(async () => {
-        try {
-          await setDoc(doc(db, 'users', user.uid, 'appData', key), { data: JSON.stringify(data) });
-        } catch (e) {
-          console.error(`Auto-save failed for ${key}`, e);
-        }
-      }, 2000);
-      return () => clearTimeout(timeout);
-    }, [data, user, isInitialSyncDone]);
-  };
-
-  useAutoSave('brokers', brokers);
-  useAutoSave('accounts', accounts);
-  useAutoSave('bankAccounts', bankAccounts);
-  useAutoSave('stocks', stocks);
-  useAutoSave('trades', trades);
-  useAutoSave('transactions', transactions);
-  useAutoSave('goals', investmentGoals);
-  useAutoSave('monthlyValues', monthlyValues);
-  useAutoSave('historicalGains', historicalGains);
+  useAutoSave('brokers', brokers, user, isInitialSyncDone);
+  useAutoSave('accounts', accounts, user, isInitialSyncDone);
+  useAutoSave('bankAccounts', bankAccounts, user, isInitialSyncDone);
+  useAutoSave('stocks', stocks, user, isInitialSyncDone);
+  useAutoSave('trades', trades, user, isInitialSyncDone);
+  useAutoSave('transactions', transactions, user, isInitialSyncDone);
+  useAutoSave('goals', investmentGoals, user, isInitialSyncDone);
+  useAutoSave('monthlyValues', monthlyValues, user, isInitialSyncDone);
+  useAutoSave('historicalGains', historicalGains, user, isInitialSyncDone);
 
   // Auto-save settings
   useEffect(() => {
@@ -329,14 +334,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           backgroundFetchInterval,
           showSummary,
           theme,
-          homeScreenPreference
+          homeScreenPreference,
+          retirementGoal
         }, { merge: true });
       } catch (e) {
         console.error('Auto-save settings failed', e);
       }
     }, 2000);
     return () => clearTimeout(timeout);
-  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, user, isInitialSyncDone]);
+  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, retirementGoal, user, isInitialSyncDone]);
 
   const handleGoogleLogin = async () => {
     try {
@@ -750,6 +756,37 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     }
     const mwrr = calculateXIRR(cashFlows);
 
+    // Calculate CAGR from 2026-01-01
+    const startDate202601 = new Date('2026-01-01');
+    const cashFlowsFrom202601: { amount: number; date: Date }[] = [];
+    
+    const valueAtStart2026 = (monthlyValues || [])
+        .filter(mv => new Date(mv.date).getTime() <= startDate202601.getTime())
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.totalValue || 0;
+    
+    if (valueAtStart2026 > 0) {
+        cashFlowsFrom202601.push({ amount: -valueAtStart2026, date: startDate202601 });
+    }
+
+    mainPortfolioTransactions.forEach(t => {
+        const date = new Date(t.date);
+        if (date < startDate202601) return;
+        if (t.transactionType === TransactionType.Dividend) return;
+        if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return;
+        
+        const amount = Number(t.amount) || 0;
+        if (t.transactionType === TransactionType.Deposit) {
+            cashFlowsFrom202601.push({ amount: -amount, date });
+        } else if (t.transactionType === TransactionType.Withdrawal) {
+            cashFlowsFrom202601.push({ amount: amount, date });
+        }
+    });
+
+    if (totalAssets > 0) {
+        cashFlowsFrom202601.push({ amount: totalAssets, date: new Date() });
+    }
+    const cagrFrom202601 = calculateXIRR(cashFlowsFrom202601);
+
     const currentYear = new Date().getFullYear();
     const startOfCurrentYear = new Date(currentYear, 0, 1);
     const lastYearValues = (monthlyValues || [])
@@ -850,6 +887,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       profitLoss,
       ccr,
       mwrr,
+      cagrFrom202601,
       ytd,
       twrr,
       chartData: portfolioChartData,
@@ -919,7 +957,6 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           monthlyValues={monthlyValues}
           transactions={mainPortfolioTransactions}
           accounts={accounts}
-          user={user}
         />;
       case Screen.StockStatus:
         return <StockStatusScreen 
@@ -977,14 +1014,12 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           transactions={mainPortfolioTransactions}
         />;
       case Screen.GoalInvesting:
-        return <GoalInvestingScreen
-          investmentGoals={investmentGoals}
-          trades={trades}
-          setTrades={setTrades}
-          transactions={transactions}
-          stocks={stocks}
-          stockPrices={stockPrices}
-          accounts={accounts}
+        return <RetirementGoalScreen
+          retirementGoal={retirementGoal}
+          setRetirementGoal={setRetirementGoal}
+          currentTotalAssets={financialSummary.totalAssets}
+          currentMwrr={financialSummary.cagrFrom202601}
+          monthlyValues={monthlyValues}
         />;
       case Screen.Index:
         return <IndexScreen 

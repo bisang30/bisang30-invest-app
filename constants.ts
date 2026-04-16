@@ -10,7 +10,7 @@ export const NAV_ITEMS = [
   { screen: Screen.AccountTransactions, label: '계좌입출금' },
   { screen: Screen.ProfitManagement, label: '수익 관리' },
   { screen: Screen.MonthlyHistory, label: '월말 결산' },
-  { screen: Screen.GoalInvesting, label: '목표 달성' },
+  { screen: Screen.GoalInvesting, label: '은퇴목표관리' },
   { screen: Screen.Index, label: '설정' },
   { screen: Screen.Menu, label: '메뉴' },
   { screen: Screen.HoldingsStatus, label: '포트폴리오 가꾸기' },

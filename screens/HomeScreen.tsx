@@ -176,7 +176,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThreshol
 
   const trendData = useMemo(() => {
     const yearDataPoints = (monthlyValues || [])
-      .filter(mv => selectedTrendYear === '전체' || new Date(mv.date).getFullYear() === selectedTrendYear)
+      .filter(mv => selectedTrendYear === '전체' || new Date(mv.date).getFullYear() >= (selectedTrendYear as number))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   
     if (yearDataPoints.length === 0) return [];
@@ -328,7 +328,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThreshol
       </div>
       
       <Card title="총 투자 추이">
-        <div className="flex justify-end mb-4 max-w-xs ml-auto"><Select label="년도 선택" id="trend-year-select" value={selectedTrendYear} onChange={(e) => { const value = e.target.value; setSelectedTrendYear(isNaN(parseInt(value, 10)) ? value : parseInt(value, 10)); }}>{availableTrendYears.map((year) => <option key={year} value={year}>{year === '전체' ? '전체' : `${year}년`}</option>)}</Select></div>
+        <div className="flex justify-end mb-4 max-w-xs ml-auto"><Select label="시작 년도" id="trend-year-select" value={selectedTrendYear} onChange={(e) => { const value = e.target.value; setSelectedTrendYear(isNaN(parseInt(value, 10)) ? value : parseInt(value, 10)); }}>{availableTrendYears.map((year) => <option key={year} value={year}>{year === '전체' ? '전체' : `${year}년`}</option>)}</Select></div>
         <ResponsiveContainer width="100%" height={300}><AreaChart data={trendData}><defs><linearGradient id="colorTotalValue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient><linearGradient id="colorDeposits" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6b7280" stopOpacity={0.7}/><stop offset="95%" stopColor="#6b7280" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" tick={{ fontSize: 12, fill: 'currentColor' }} /><YAxis tickFormatter={(value) => new Intl.NumberFormat('ko-KR', { notation: 'compact' }).format(value as number)} /><Tooltip formatter={(value: number) => formatCurrency(value)} /><Legend /><Area type="monotone" dataKey="totalValue" name="총 자산" stroke="#3b82f6" fillOpacity={1} fill="url(#colorTotalValue)" /><Area type="monotone" dataKey="deposits" name="누적 순입금액" stroke="#6b7280" fillOpacity={1} fill="url(#colorDeposits)" /></AreaChart></ResponsiveContainer>
       </Card>
     </div>

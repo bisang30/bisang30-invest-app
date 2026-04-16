@@ -94,6 +94,13 @@ export interface AccountTransaction {
   goalId?: string;
 }
 
+export interface RetirementGoal {
+  targetAmount: number;
+  targetYear: number;
+  currentYear: number;
+  intermediateExpenses: { amount: number; year: number; name: string; isRecurring?: boolean }[];
+}
+
 export interface InvestmentGoal {
   id: string;
   name: string;

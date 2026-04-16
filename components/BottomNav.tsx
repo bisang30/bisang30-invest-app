@@ -8,7 +8,7 @@ interface BottomNavProps {
   currentScreen: Screen;
   setCurrentScreen: (screen: Screen) => void;
   appVersion: string;
-  homeScreenPreference: 'HOME' | 'HOLDINGS_STATUS';
+  homeScreenPreference: 'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING';
 }
 
 const iconMap: Record<Screen, React.ComponentType<{ className: string }>> = {
@@ -69,6 +69,7 @@ const labelMap: Record<string, string> = {
   '투자 현황': '투자현황',
   '메뉴': '메뉴',
   '포트폴리오 가꾸기': '가꾸기',
+  '은퇴목표관리': '은퇴목표',
 };
 
 const NavItem: React.FC<{
@@ -106,15 +107,19 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentScreen, setCurrentScreen, 
     const baseOrder: Screen[] = [
       Screen.Menu,
       Screen.StockStatus,
-      Screen.HoldingsStatus,
+      Screen.GoalInvesting,
       Screen.AccountStatus,
     ];
 
-    if (homeScreenPreference === Screen.HoldingsStatus) {
-      const holdingsIndex = baseOrder.indexOf(Screen.HoldingsStatus);
-      if (holdingsIndex !== -1) {
-        baseOrder[holdingsIndex] = Screen.Home;
+    if (homeScreenPreference === Screen.GoalInvesting) {
+      const goalIndex = baseOrder.indexOf(Screen.GoalInvesting);
+      if (goalIndex !== -1) {
+        baseOrder[goalIndex] = Screen.Home;
       }
+    } else if (homeScreenPreference === Screen.HoldingsStatus) {
+      // If HoldingsStatus is selected as home, we still want GoalInvesting in the nav, 
+      // but maybe we replace something else? Let's just keep GoalInvesting and replace it if it's the home preference.
+      // Actually, if HoldingsStatus is home, we just leave baseOrder as is, because HoldingsStatus is the center button.
     }
     return baseOrder;
   }, [homeScreenPreference]);

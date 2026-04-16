@@ -92,8 +92,8 @@ interface IndexScreenProps {
   historicalGains: HistoricalGain[];
   alertThresholds: AlertThresholds;
   setAlertThresholds: React.Dispatch<React.SetStateAction<AlertThresholds>>;
-  homeScreenPreference: 'HOME' | 'HOLDINGS_STATUS';
-  setHomeScreenPreference: React.Dispatch<React.SetStateAction<'HOME' | 'HOLDINGS_STATUS'>>;
+  homeScreenPreference: 'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING';
+  setHomeScreenPreference: React.Dispatch<React.SetStateAction<'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING'>>;
   investmentGoals: InvestmentGoal[];
   setInvestmentGoals: React.Dispatch<React.SetStateAction<InvestmentGoal[]>>;
   user: User | null;
@@ -1566,10 +1566,11 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                     label="기본 홈 화면"
                                     id="home-screen-preference"
                                     value={homeScreenPreference}
-                                    onChange={(e) => setHomeScreenPreference(e.target.value as 'HOME' | 'HOLDINGS_STATUS')}
+                                    onChange={(e) => setHomeScreenPreference(e.target.value as 'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING')}
                                   >
                                     <option value={Screen.Home}>투자 현황</option>
                                     <option value={Screen.HoldingsStatus}>보유 현황</option>
+                                    <option value={Screen.GoalInvesting}>은퇴목표관리</option>
                                   </Select>
                                 </div>
                               </div>

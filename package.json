@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "lint": "tsc --noEmit",
     "start": "node server.ts",
     "preview": "vite preview"
   },
@@ -14,6 +15,8 @@
     "@vitejs/plugin-react": "^5.0.0",
     "express": "^5.2.1",
     "firebase": "^12.12.0",
+    "framer-motion": "^12.38.0",
+    "motion": "^12.38.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "recharts": "^2.13.2",
@@ -24,6 +27,8 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "@types/node": "^22.14.0"
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
   }
 }
