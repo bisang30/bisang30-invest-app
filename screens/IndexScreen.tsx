@@ -827,6 +827,19 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
         const userRef = doc(db, 'users', user.uid);
         const colRef = collection(userRef, collectionName);
         
+        // First, clear existing documents in the collection to prevent duplicates
+        try {
+          const existingDocs = await getDocs(colRef);
+          for (let i = 0; i < existingDocs.docs.length; i += BATCH_SIZE) {
+            const deleteBatch = writeBatch(db);
+            const chunk = existingDocs.docs.slice(i, i + BATCH_SIZE);
+            chunk.forEach(d => deleteBatch.delete(d.ref));
+            await deleteBatch.commit();
+          }
+        } catch (e) {
+          console.error(`Error clearing collection ${collectionName}:`, e);
+        }
+
         for (let i = 0; i < dataArray.length; i += BATCH_SIZE) {
           const batch = writeBatch(db);
           const chunk = dataArray.slice(i, i + BATCH_SIZE);

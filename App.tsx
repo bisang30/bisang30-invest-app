@@ -258,7 +258,28 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             const colRef = collection(db, 'users', currentUser.uid, colName);
             const snap = await getDocs(colRef);
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            if (data.length > 0) setter(data);
+            
+            // Deduplicate by name/ticker/date to handle existing duplicates in Firestore
+            let uniqueData = data;
+            if (data.length > 0) {
+              if (colName === 'accounts' || colName === 'brokers' || colName === 'goals' || colName === 'bankAccounts') {
+                const seen = new Set();
+                uniqueData = data.filter(item => {
+                  const key = item.name || item.bankName; // Use name or bankName as unique key
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
+              } else if (colName === 'stocks') {
+                const seen = new Set();
+                uniqueData = data.filter(item => {
+                  if (seen.has(item.ticker)) return false;
+                  seen.add(item.ticker);
+                  return true;
+                });
+              }
+              setter(uniqueData);
+            }
           };
 
           await Promise.all([
