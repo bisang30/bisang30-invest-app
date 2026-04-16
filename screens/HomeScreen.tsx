@@ -43,7 +43,7 @@ const MetricDisplay: React.FC<{ label: string; value: string; tooltip: string }>
 
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThresholds, showSummary, navigateToRebalancing, monthlyValues, transactions, accounts }) => {
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState<number | string>(new Date().getFullYear());
   const [selectedTrendYear, setSelectedTrendYear] = useState<number | string>('전체');
   const [isRebalancingAlertExpanded, setIsRebalancingAlertExpanded] = useState(false);
   const [expandedAlertCategory, setExpandedAlertCategory] = useState<PortfolioCategory | null>(null);
@@ -140,17 +140,22 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThreshol
   }, [totalWarnings]);
 
   const monthlyPLData = useMemo(() => {
-    const yearData = (monthlyValues || [])
-      .filter(mv => new Date(mv.date).getFullYear() === selectedYear)
+    const startYear = selectedYear === '전체' ? 0 : (selectedYear as number);
+    
+    const filteredData = (monthlyValues || [])
+      .filter(mv => startYear === 0 || new Date(mv.date).getFullYear() >= startYear)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    if (yearData.length === 0) return [];
+    if (filteredData.length === 0) return [];
     
-    const lastMonthOfPrevYear = (monthlyValues || [])
-        .filter(mv => new Date(mv.date).getFullYear() === selectedYear - 1)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    let referencePoint = null;
+    if (startYear !== 0) {
+        referencePoint = (monthlyValues || [])
+            .filter(mv => new Date(mv.date).getFullYear() < startYear)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    }
 
-    const dataPoints = [lastMonthOfPrevYear, ...yearData].filter(Boolean);
+    const dataPoints = [referencePoint, ...filteredData].filter(Boolean);
     
     const results = [];
     for (let i = 1; i < dataPoints.length; i++) {
@@ -165,8 +170,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThreshol
             return txDate > prevDate && txDate <= currentDate && !isInternalTransfer;
         }).reduce((acc, t) => acc + (Number(t.amount) || 0) * (t.transactionType === 'DEPOSIT' || t.transactionType === 'DIVIDEND' ? 1 : -1), 0);
 
+        const yearStr = String(currentDate.getFullYear()).slice(-2);
+        const monthStr = String(currentDate.getMonth() + 1).padStart(2, '0');
+
         results.push({
-            name: `${currentDate.getMonth() + 1}월`,
+            name: `${yearStr}.${monthStr}`,
             pl: (Number(current.totalValue) || 0) - (Number(prev.totalValue) || 0) - monthlyNetDeposits,
         });
     }
@@ -322,7 +330,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThreshol
           </div>
         </Card>
         <Card title="월별 손익">
-          <div className="mb-4 max-w-xs ml-auto"><Select label="년도 선택" id="year-select" value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}>{availableYears.map((year) => <option key={year} value={year}>{year}년</option>)}</Select></div>
+          <div className="mb-4 max-w-xs ml-auto"><Select label="시작 년도" id="year-select" value={selectedYear} onChange={(e) => { const value = e.target.value; setSelectedYear(isNaN(parseInt(value, 10)) ? value : parseInt(value, 10)); }}>{availableTrendYears.map((year) => <option key={year} value={year}>{year === '전체' ? '전체' : `${year}년`}</option>)}</Select></div>
           <ResponsiveContainer width="100%" height={300}><ComposedChart data={monthlyPLData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDataOverflow={true} domain={['auto', 'auto']} tickFormatter={(value) => new Intl.NumberFormat('ko-KR', { notation: 'compact' }).format(value as number)} /><Tooltip formatter={(value: number) => formatCurrency(value)} /><Legend /><Bar dataKey="pl" name="손익">{monthlyPLData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.pl >= 0 ? '#22c55e' : '#ef4444'} />)}</Bar><Line type="monotone" dataKey="pl" name="추세" stroke="#ff7300" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} /></ComposedChart></ResponsiveContainer>
         </Card>
       </div>
