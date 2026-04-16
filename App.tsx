@@ -204,6 +204,7 @@ const calculateTWRR = (monthlyValues: MonthlyAccountValue[], transactions: Accou
 const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isInitialSyncDone, setIsInitialSyncDone] = useState(false);
   const [theme, setTheme] = useLocalStorage<Theme>('theme', Theme.Light);
   const [password, setPassword] = useLocalStorage<string | null>('app-password', '9635');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!password);
@@ -255,6 +256,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           }
 
           const syncCollection = async (colName: string, setter: any) => {
+            // 1. Try new appData document schema
+            const appDataRef = doc(db, 'users', currentUser.uid, 'appData', colName);
+            const appDataSnap = await getDoc(appDataRef);
+            if (appDataSnap.exists() && appDataSnap.data().data) {
+              setter(JSON.parse(appDataSnap.data().data));
+              return;
+            }
+
+            // 2. Fallback to old collection schema
             const colRef = collection(db, 'users', currentUser.uid, colName);
             const snap = await getDocs(colRef);
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -297,11 +307,57 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           console.error("Error syncing from Firestore:", error);
         } finally {
           setIsDataOperationInProgress(false);
+          setIsInitialSyncDone(true);
         }
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // Auto-save hooks
+  const useAutoSave = (key: string, data: any) => {
+    useEffect(() => {
+      if (!user || !isInitialSyncDone) return;
+      const timeout = setTimeout(async () => {
+        try {
+          await setDoc(doc(db, 'users', user.uid, 'appData', key), { data: JSON.stringify(data) });
+        } catch (e) {
+          console.error(`Auto-save failed for ${key}`, e);
+        }
+      }, 2000);
+      return () => clearTimeout(timeout);
+    }, [data, user, isInitialSyncDone]);
+  };
+
+  useAutoSave('brokers', brokers);
+  useAutoSave('accounts', accounts);
+  useAutoSave('bankAccounts', bankAccounts);
+  useAutoSave('stocks', stocks);
+  useAutoSave('trades', trades);
+  useAutoSave('transactions', transactions);
+  useAutoSave('goals', investmentGoals);
+  useAutoSave('monthlyValues', monthlyValues);
+  useAutoSave('historicalGains', historicalGains);
+
+  // Auto-save settings
+  useEffect(() => {
+    if (!user || !isInitialSyncDone) return;
+    const timeout = setTimeout(async () => {
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          initialPortfolio,
+          alertThresholds,
+          backgroundFetchInterval,
+          showSummary,
+          theme,
+          homeScreenPreference
+        }, { merge: true });
+      } catch (e) {
+        console.error('Auto-save settings failed', e);
+      }
+    }, 2000);
+    return () => clearTimeout(timeout);
+  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, user, isInitialSyncDone]);
 
   const handleGoogleLogin = async () => {
     try {
