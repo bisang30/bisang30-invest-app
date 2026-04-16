@@ -820,43 +820,14 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           return xlsxLib.utils.sheet_to_json(ws);
       };
 
-      const BATCH_SIZE = 400; // Firestore batch limit is 500, using 400 for safety
-
       const saveToFirebase = async (collectionName: string, dataArray: any[]) => {
         if (!user) return;
-        const userRef = doc(db, 'users', user.uid);
-        const colRef = collection(userRef, collectionName);
-        
-        // First, clear existing documents in the collection to prevent duplicates
         try {
-          const existingDocs = await getDocs(colRef);
-          for (let i = 0; i < existingDocs.docs.length; i += BATCH_SIZE) {
-            const deleteBatch = writeBatch(db);
-            const chunk = existingDocs.docs.slice(i, i + BATCH_SIZE);
-            chunk.forEach(d => deleteBatch.delete(d.ref));
-            await deleteBatch.commit();
-          }
+          const appDataRef = doc(db, 'users', user.uid, 'appData', collectionName);
+          await setDoc(appDataRef, { data: JSON.stringify(dataArray) });
         } catch (e) {
-          console.error(`Error clearing collection ${collectionName}:`, e);
-        }
-
-        for (let i = 0; i < dataArray.length; i += BATCH_SIZE) {
-          const batch = writeBatch(db);
-          const chunk = dataArray.slice(i, i + BATCH_SIZE);
-          chunk.forEach(item => {
-            const { id, ...rest } = item;
-            // Remove undefined fields as Firestore doesn't support them
-            const cleanData = Object.fromEntries(
-              Object.entries(rest).filter(([_, v]) => v !== undefined)
-            );
-            const docRef = doc(colRef, id);
-            batch.set(docRef, cleanData);
-          });
-          try {
-            await batch.commit();
-          } catch (e) {
-            handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/${collectionName}`);
-          }
+          console.error(`Error saving ${collectionName} to appData:`, e);
+          handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/appData/${collectionName}`);
         }
       };
 
