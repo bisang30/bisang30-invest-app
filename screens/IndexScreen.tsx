@@ -1027,6 +1027,25 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
               });
           }
       });
+
+      const interestData = safeSheetToJSON(workbook, '이용료기록');
+      interestData.forEach(row => {
+          const date = row['일자'] instanceof Date ? row['일자'].toISOString().split('T')[0] : String(row['일자']);
+          const accountName = row['계좌']?.trim();
+          const amount = parseFloat(row['금액']);
+
+          const accountId = accountNameToIdMap.get(accountName);
+
+          if (date && accountId && !isNaN(amount)) {
+              newTransactions.push({
+                  id: `tx-int-${Date.now()}-${Math.random()}`,
+                  date,
+                  accountId,
+                  amount,
+                  transactionType: TransactionType.Interest,
+              });
+          }
+      });
       if (user) await saveToFirebase('transactions', newTransactions);
 
       setImportStatus('데이터 변환 중 (10/13): 월말결산...');

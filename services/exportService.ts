@@ -146,8 +146,9 @@ export const exportAllData = (
     (accounts || []).forEach(a => allAccountsMap.set(a.id, a.name));
     (bankAccounts || []).forEach(b => allAccountsMap.set(b.id, `${b.bankName} ${b.name}`));
     
-    const regularTransactions = (transactions || []).filter(t => t.transactionType !== TransactionType.Dividend);
+    const regularTransactions = (transactions || []).filter(t => t.transactionType !== TransactionType.Dividend && t.transactionType !== TransactionType.Interest);
     const dividendTransactions = (transactions || []).filter(t => t.transactionType === TransactionType.Dividend);
+    const interestTransactions = (transactions || []).filter(t => t.transactionType === TransactionType.Interest);
     
     sheets.push({
         name: '입출금기록',
@@ -173,6 +174,15 @@ export const exportAllData = (
                 '금액': tx.amount,
             };
         })
+    });
+
+    sheets.push({
+        name: '이용료기록',
+        data: interestTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(tx => ({
+            '일자': tx.date,
+            '계좌': allAccountsMap.get(tx.accountId) || 'N/A',
+            '금액': tx.amount,
+        }))
     });
 
     sheets.push({
