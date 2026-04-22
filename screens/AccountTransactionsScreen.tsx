@@ -77,7 +77,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
   }, [transactions, allAccountsMap]);
 
   const filteredAndSortedTransactions = useMemo(() => {
-    let filteredItems = (transactions || []).filter(t => t.transactionType !== TransactionType.Dividend);
+    let filteredItems = (transactions || []).filter(t => t.transactionType !== TransactionType.Dividend && t.transactionType !== TransactionType.Interest);
 
     // Filtering
     filteredItems = filteredItems.filter(t => {
@@ -328,6 +328,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
               <option value="all">전체</option>
               <option value={TransactionType.Deposit}>입금</option>
               <option value={TransactionType.Withdrawal}>출금</option>
+              <option value={TransactionType.Interest}>이용료</option>
             </Select>
             <Select label="상대계좌" name="counterpartyAccountId" value={filters.counterpartyAccountId} onChange={handleFilterChange}>
               <option value="all">전체</option>
@@ -361,7 +362,11 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
                   <td className="p-3"><input type="checkbox" checked={selectedIds.has(transaction.id)} onChange={() => handleSelect(transaction.id)} aria-labelledby={`transaction-account-${transaction.id}`} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-light-primary focus:ring-light-primary bg-gray-100 dark:bg-gray-700" /></td>
                   <td className="p-3">{transaction.date}</td>
                   <td className="p-3 font-semibold" id={`transaction-account-${transaction.id}`}>{allAccountsMap.get(transaction.accountId) || 'N/A'}</td>
-                  <td className={`p-3 font-semibold ${transaction.transactionType === TransactionType.Deposit ? 'text-profit' : 'text-loss'}`}>{transaction.transactionType === TransactionType.Deposit ? '입금' : '출금'}</td>
+                  <td className={`p-3 font-semibold ${transaction.transactionType === TransactionType.Withdrawal ? 'text-loss' : 'text-profit'}`}>
+                    {transaction.transactionType === TransactionType.Deposit ? '입금' : 
+                     transaction.transactionType === TransactionType.Withdrawal ? '출금' : 
+                     transaction.transactionType === TransactionType.Interest ? '이용료' : '배당'}
+                  </td>
                   <td className="p-3 text-right">{formatCurrency(Number(transaction.amount) || 0)}</td>
                   <td className="p-3">{transaction.counterpartyAccountId ? allAccountsMap.get(transaction.counterpartyAccountId) : '외부'}</td>
                   <td className="p-3 text-center"><Button variant="secondary" onClick={() => handleEditClick(transaction)} className="px-2 py-1 text-xs">수정</Button></td>
@@ -390,9 +395,13 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
                                     <p className="font-bold text-base sm:text-lg text-light-text dark:text-dark-text">{allAccountsMap.get(transaction.accountId) || 'N/A'}</p>
                                     <p className="text-light-secondary dark:text-dark-secondary">{transaction.date}</p>
                                 </div>
-                                <div className="text-right">
-                                    <p className={`font-bold text-base sm:text-lg ${isDeposit ? 'text-profit' : 'text-loss'}`}>{formatCurrency(transaction.amount)}</p>
-                                    <p className="text-light-secondary dark:text-dark-secondary">{isDeposit ? '입금' : '출금'}</p>
+                <div className="text-right">
+                                    <p className={`font-bold text-base sm:text-lg ${transaction.transactionType === TransactionType.Withdrawal ? 'text-loss' : 'text-profit'}`}>{formatCurrency(transaction.amount)}</p>
+                                    <p className="text-light-secondary dark:text-dark-secondary">
+                                      {transaction.transactionType === TransactionType.Deposit ? '입금' : 
+                                       transaction.transactionType === TransactionType.Withdrawal ? '출금' : 
+                                       transaction.transactionType === TransactionType.Interest ? '이용료' : '배당'}
+                                    </p>
                                 </div>
                             </div>
                             <div className="flex justify-between items-end mt-2 text-sm">

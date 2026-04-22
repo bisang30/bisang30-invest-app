@@ -144,7 +144,7 @@ const calculateTWRR = (monthlyValues: MonthlyAccountValue[], transactions: Accou
     const firstPeriodNetCashFlow = (transactions || [])
         .filter(t => {
             if (new Date(t.date) > firstValuationDate) return false;
-            if (t.transactionType === TransactionType.Dividend) return false;
+            if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) return false;
             if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return false;
             return true;
         })
@@ -169,7 +169,7 @@ const calculateTWRR = (monthlyValues: MonthlyAccountValue[], transactions: Accou
             .filter(t => {
                 const txDate = new Date(t.date);
                 if (txDate <= prevDate || txDate > currentDate) return false;
-                if (t.transactionType === TransactionType.Dividend) return false;
+                if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) return false;
                 if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return false;
                 return true;
             })
@@ -666,7 +666,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         let netCashFromTransactions = 0;
         mainPortfolioTransactions.forEach(t => {
             const amount = Number(t.amount) || 0;
-            if (t.accountId === account.id && (t.transactionType === TransactionType.Deposit || t.transactionType === TransactionType.Dividend)) {
+            if (t.accountId === account.id && (t.transactionType === TransactionType.Deposit || t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest)) {
                 netCashFromTransactions += amount;
             }
             if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal) {
@@ -691,7 +691,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
 
   const netExternalDeposits = useMemo(() => {
     return mainPortfolioTransactions.reduce((acc, t) => {
-        if (t.transactionType === TransactionType.Dividend) {
+        if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) {
             return acc;
         }
         if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) {
@@ -740,7 +740,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     
     const cashFlows: { amount: number; date: Date }[] = [];
     mainPortfolioTransactions.forEach(t => {
-        if (t.transactionType === TransactionType.Dividend) return;
+        if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) return;
         if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return;
         const amount = Number(t.amount) || 0;
         const date = new Date(t.date);
@@ -771,7 +771,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     mainPortfolioTransactions.forEach(t => {
         const date = new Date(t.date);
         if (date < startDate202601) return;
-        if (t.transactionType === TransactionType.Dividend) return;
+        if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) return;
         if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return;
         
         const amount = Number(t.amount) || 0;
@@ -800,7 +800,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         startOfYearAssets = mainPortfolioTransactions
             .filter(t => {
                 if (new Date(t.date) >= startOfCurrentYear) return false;
-                if (t.transactionType === TransactionType.Dividend) return false;
+                if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) return false;
                 if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return false;
                 return true;
             })
@@ -815,7 +815,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     const netInflowThisYear = mainPortfolioTransactions
         .filter(t => {
             if (new Date(t.date).getFullYear() !== currentYear) return false;
-            if (t.transactionType === TransactionType.Dividend) return false;
+            if (t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest) return false;
             if (t.counterpartyAccountId && securityAccountIds.has(t.counterpartyAccountId)) return false;
             return true;
         })

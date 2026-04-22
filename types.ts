@@ -31,6 +31,7 @@ export const TransactionType = {
   Deposit: 'DEPOSIT',
   Withdrawal: 'WITHDRAWAL',
   Dividend: 'DIVIDEND',
+  Interest: 'INTEREST',
 } as const;
 export type TransactionType = typeof TransactionType[keyof typeof TransactionType];
 

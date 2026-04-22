@@ -80,7 +80,7 @@
         "date": { "type": "string", "format": "date" },
         "accountId": { "type": "string" },
         "amount": { "type": "number" },
-        "transactionType": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "DIVIDEND"] },
+        "transactionType": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST"] },
         "counterpartyAccountId": { "type": "string" },
         "stockId": { "type": "string" },
         "goalId": { "type": "string" }

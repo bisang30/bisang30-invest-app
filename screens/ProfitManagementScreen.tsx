@@ -526,6 +526,191 @@ const DividendsView: React.FC<DividendsViewProps> = ({ transactions, setTransact
 };
 
 
+interface InterestViewProps {
+  transactions: AccountTransaction[];
+  setTransactions: React.Dispatch<React.SetStateAction<AccountTransaction[]>>;
+  accounts: Account[];
+}
+
+const InterestView: React.FC<InterestViewProps> = ({ transactions, setTransactions, accounts }) => {
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingTx, setEditingTx] = useState<AccountTransaction | null>(null);
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    const [txToDelete, setTxToDelete] = useState<AccountTransaction | null>(null);
+    const [formState, setFormState] = useState<Partial<AccountTransaction>>({
+        date: new Date().toISOString().split('T')[0],
+        accountId: (accounts || [])[0]?.id || '',
+        amount: 0,
+        transactionType: TransactionType.Interest,
+    });
+    const [filters, setFilters] = useState({ year: new Date().getFullYear().toString(), month: 'all', accountId: 'all' });
+    const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
+
+    const accountMap = useMemo(() => new Map((accounts || []).map(a => [a.id, a.name])), [accounts]);
+
+    const interestTransactions = useMemo(() => (transactions || []).filter(t => t.transactionType === TransactionType.Interest).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [transactions]);
+    
+    const filterOptions = useMemo(() => {
+      const currentYear = new Date().getFullYear(), startYear = 2024, years = [];
+      for (let y = currentYear; y >= startYear; y--) years.push(y.toString());
+      const accountIds = new Set<string>();
+      interestTransactions.forEach(t => { if (t.accountId) accountIds.add(t.accountId); });
+      return { years, months: Array.from({ length: 12 }, (_, i) => (i + 1).toString()), accounts: Array.from(accountIds).map(id => ({ id, name: accountMap.get(id) || 'N/A' })) };
+    }, [interestTransactions, accountMap]);
+
+    const filteredInterestTransactions = useMemo(() => interestTransactions.filter(t => { 
+      const d = new Date(t.date); 
+      if (filters.year !== 'all' && d.getFullYear().toString() !== filters.year) return false; 
+      if (filters.month !== 'all' && (d.getMonth() + 1).toString() !== filters.month) return false; 
+      if (filters.accountId !== 'all' && t.accountId !== filters.accountId) return false; 
+      return true; 
+    }), [interestTransactions, filters]);
+
+    const monthlyInterestData = useMemo(() => { 
+      const y = parseInt(filters.year, 10), monthlyTotals = Array(12).fill(0); 
+      let yearTotal = 0; 
+      interestTransactions.forEach(tx => { 
+        const d = new Date(tx.date); 
+        if (d.getFullYear() === y) { 
+          const m = d.getMonth(), a = Number(tx.amount) || 0; 
+          monthlyTotals[m] += a; 
+          yearTotal += a; 
+        } 
+      }); 
+      return { chartData: monthlyTotals.map((t, i) => ({ name: `${i + 1}월`, '이용료': t })), total: yearTotal, year: y }; 
+    }, [interestTransactions, filters.year]);
+
+    const totalCumulativeInterest = useMemo(() => (transactions || []).filter(t => t.transactionType === TransactionType.Interest && new Date(t.date).getFullYear() >= 2024).reduce((s, t) => s + (Number(t.amount) || 0), 0), [transactions]);
+    
+    const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => setFilters(p => ({ ...p, [e.target.name]: e.target.value }));
+    const resetFilters = () => setFilters({ year: new Date().getFullYear().toString(), month: 'all', accountId: 'all' });
+    const isFilterActive = useMemo(() => filters.year !== new Date().getFullYear().toString() || filters.month !== 'all' || filters.accountId !== 'all', [filters]);
+
+    const handleAddClick = () => { 
+      setEditingTx(null); 
+      setFormState({ date: new Date().toISOString().split('T')[0], accountId: (accounts || [])[0]?.id || '', amount: 0, transactionType: TransactionType.Interest }); 
+      setIsModalOpen(true); 
+    };
+
+    const handleEditClick = (tx: AccountTransaction) => { setEditingTx(tx); setFormState(tx); setIsModalOpen(true); };
+    const handleDeleteClick = (tx: AccountTransaction) => { setTxToDelete(tx); setIsConfirmModalOpen(true); };
+    const confirmDelete = () => { if (txToDelete) setTransactions(p => (p || []).filter(t => t.id !== txToDelete.id)); setIsConfirmModalOpen(false); setTxToDelete(null); };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { 
+      const { name, value } = e.target; 
+      if (name === 'amount') { 
+        const n = parseFloat(value.replace(/,/g, '')); 
+        setFormState(p => ({...p, [name]: isNaN(n) ? 0 : n})); 
+      } else { 
+        setFormState(p => ({...p, [name]: value})); 
+      } 
+    };
+
+    const handleSubmit = (e: React.FormEvent) => { 
+      e.preventDefault(); 
+      if (!formState.accountId || !formState.amount || formState.amount <= 0) { 
+        alert('모든 필드를 올바르게 입력해주세요.'); 
+        return; 
+      } 
+      if (editingTx) { 
+        setTransactions(p => (p || []).map(t => t.id === editingTx.id ? {...t, ...formState} as AccountTransaction : t)); 
+      } else { 
+        setTransactions(p => [{...formState, id: Date.now().toString()} as AccountTransaction, ...(p || [])]); 
+      } 
+      setIsModalOpen(false); 
+    };
+
+    const groupedData = useMemo(() => {
+        const dataMap: { [key: string]: { name: string, total: number, transactions: AccountTransaction[] } } = {};
+        filteredInterestTransactions.forEach(tx => {
+            const key = tx.accountId;
+            if (!key) return;
+            if (!dataMap[key]) {
+                dataMap[key] = { name: accountMap.get(key) || '알 수 없음', total: 0, transactions: [] };
+            }
+            dataMap[key].total += Number(tx.amount) || 0;
+            dataMap[key].transactions.push(tx);
+        });
+        return Object.entries(dataMap).map(([key, value]) => ({ ...value, id: key })).sort((a, b) => b.total - a.total);
+    }, [filteredInterestTransactions, accountMap]);
+
+    return (
+        <Card>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              <div className="bg-light-card dark:bg-dark-card p-4 rounded-lg shadow-md flex items-center gap-4 border border-gray-200/80 dark:border-slate-700">
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
+                  <BanknotesIcon className="w-6 h-6 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-light-secondary dark:text-dark-secondary">총 누적 예탁금 이용료 (2024~)</p>
+                  <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totalCumulativeInterest)}</p>
+                </div>
+              </div>
+              <div className="bg-light-card dark:bg-dark-card p-4 rounded-lg shadow-md flex items-center gap-4 border border-gray-200/80 dark:border-slate-700">
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
+                  <CalendarDaysIcon className="w-6 h-6 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-light-secondary dark:text-dark-secondary">선택 연도 누적 ({monthlyInterestData.year}년)</p>
+                  <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(monthlyInterestData.total)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end mb-4"><Button onClick={handleAddClick}>이용료 기록</Button></div>
+            <details className="group mb-4"><summary className="cursor-pointer font-semibold text-light-text dark:text-dark-text list-none group-open:mb-4"><div className="flex justify-between items-center"><span>필터링 옵션{isFilterActive && <span className="ml-2 text-xs font-semibold px-2 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">적용 중</span>}</span><div className="flex items-center">{isFilterActive && <button type="button" onClick={(e) => { e.preventDefault(); resetFilters(); }} className="text-xs font-medium text-light-primary dark:text-dark-primary hover:underline mr-2">초기화</button>}<span className="text-xs text-light-secondary dark:text-dark-secondary group-open:hidden">펼치기</span></div></div></summary><div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Select label="연도" name="year" value={filters.year} onChange={handleFilterChange}>{filterOptions.years.map(y => <option key={y} value={y}>{y}년</option>)}</Select>
+                  <Select label="월" name="month" value={filters.month} onChange={handleFilterChange}><option value="all">전체</option>{filterOptions.months.map(m => <option key={m} value={m}>{m}월</option>)}</Select>
+                  <Select label="계좌" name="accountId" value={filters.accountId} onChange={handleFilterChange}><option value="all">전체</option>{filterOptions.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
+            </div></details>
+            <div className="mt-6 mb-8 p-4 bg-light-bg dark:bg-dark-bg/50 rounded-lg"><h3 className="text-lg font-semibold mb-4 text-center text-light-text dark:text-dark-text flex items-center justify-center gap-2"><ChartBarIcon className="w-6 h-6 text-blue-500" /><span>{monthlyInterestData.year}년 월별 예탁금 이용료 현황</span></h3><ResponsiveContainer width="100%" height={300}><BarChart data={monthlyInterestData.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis tickFormatter={(v) => new Intl.NumberFormat('ko-KR', { notation: 'compact' }).format(v as number)} /><Tooltip formatter={(v: number) => formatCurrency(v)} /><Legend /><Bar dataKey="이용료" fill="#3b82f6" /></BarChart></ResponsiveContainer></div>
+            
+            <div className="space-y-3">
+                {groupedData.length === 0 ? (<p className="text-center p-6 text-light-secondary dark:text-dark-secondary">해당 조건의 예탁금 이용료 기록이 없습니다.</p>) : (
+                    groupedData.map(group => {
+                        const isExpanded = expandedAccount === group.name;
+                        return (
+                            <div key={group.name} className="bg-light-bg dark:bg-dark-bg/50 rounded-lg shadow-sm">
+                                <div className="p-4 cursor-pointer flex justify-between items-center" onClick={() => setExpandedAccount(isExpanded ? null : group.name)}>
+                                    <div>
+                                        <p className="font-bold text-light-text dark:text-dark-text">{group.name}</p>
+                                        <p className="text-sm text-light-secondary dark:text-dark-secondary">{group.transactions.length}건</p>
+                                    </div>
+                                    <div className="text-right flex items-center gap-3">
+                                        <p className="font-bold text-lg text-blue-600 dark:text-blue-400">{formatCurrency(group.total)}</p>
+                                        {isExpanded ? <ChevronUpIcon className="w-5 h-5"/> : <ChevronDownIcon className="w-5 h-5"/>}
+                                    </div>
+                                </div>
+                                {isExpanded && (
+                                    <div className="px-4 pb-4 border-t border-gray-200/50 dark:border-slate-700/50 space-y-2">
+                                        {group.transactions.map(tx => (
+                                          <div key={tx.id} className="bg-white dark:bg-dark-card/50 p-3 rounded-md flex justify-between items-center">
+                                              <div><p className="font-semibold">{tx.date}</p></div>
+                                              <div className="text-right">
+                                                  <p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(tx.amount)}</p>
+                                                  <div className="mt-1 space-x-2">
+                                                      <Button onClick={() => handleEditClick(tx)} variant="secondary" className="px-2 py-1 text-xs">수정</Button>
+                                                      <Button onClick={() => handleDeleteClick(tx)} className="px-2 py-1 text-xs bg-loss text-white">삭제</Button>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    })
+                )}
+            </div>
+
+            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingTx ? "이용료 수정" : "이용료 기록"}><form onSubmit={handleSubmit} className="space-y-4">
+              <Input label="일자" id="int-date" name="date" type="date" value={formState.date} onChange={handleInputChange} required /><Select label="수령계좌" id="int-accountId" name="accountId" value={formState.accountId} onChange={handleInputChange} required>{(accounts || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select><Input label="금액" id="int-amount" name="amount" type="text" inputMode="numeric" value={formatNumber(formState.amount || 0)} onChange={handleInputChange} required /><div className="flex justify-end pt-4"><Button type="submit">저장</Button></div>
+            </form></Modal>
+            <Modal isOpen={isConfirmModalOpen} onClose={() => setIsConfirmModalOpen(false)} title="기록 삭제 확인"><p>정말로 이 예탁금 이용료 기록을 삭제하시겠습니까?</p><div className="flex justify-end mt-6 space-x-2"><Button onClick={() => setIsConfirmModalOpen(false)} variant="secondary">취소</Button><Button onClick={confirmDelete} className="bg-loss text-white hover:bg-red-700 focus:ring-red-500">삭제</Button></div></Modal>
+        </Card>
+    );
+};
+
+
 interface ProfitManagementScreenProps {
   trades: Trade[];
   stocks: Stock[];
@@ -573,36 +758,54 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   }, [transactions]);
 
+  const totalInterests = useMemo(() => {
+    return (transactions || [])
+        .filter(t => t.transactionType === TransactionType.Interest)
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  }, [transactions]);
+
   return (
     <div className="space-y-6">
-      <div className="flex border-b border-gray-200 dark:border-gray-700">
+      <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
         <button
           onClick={() => setActiveTab('realized')}
-          className={`flex items-center justify-center px-4 py-3 text-sm font-medium transition-colors w-1/2 ${
+          className={`flex items-center justify-center px-4 py-3 text-sm font-medium transition-colors flex-1 min-w-fit ${
             activeTab === 'realized'
               ? 'border-b-2 border-light-primary text-light-primary dark:text-dark-primary'
               : 'text-light-secondary dark:text-dark-secondary hover:text-light-text dark:hover:text-dark-text'
           }`}
         >
           <CurrencyWonIcon className="w-5 h-5 mr-2" />
-          <span>실현 손익 ({formatCurrency(totalRealizedGains)})</span>
+          <span className="whitespace-nowrap">실현 손익 ({formatCurrency(totalRealizedGains)})</span>
         </button>
         <button
           onClick={() => setActiveTab('dividends')}
-          className={`flex items-center justify-center px-4 py-3 text-sm font-medium transition-colors w-1/2 ${
+          className={`flex items-center justify-center px-4 py-3 text-sm font-medium transition-colors flex-1 min-w-fit ${
             activeTab === 'dividends'
               ? 'border-b-2 border-light-primary text-light-primary dark:text-dark-primary'
               : 'text-light-secondary dark:text-dark-secondary hover:text-light-text dark:hover:text-dark-text'
           }`}
         >
           <BanknotesIcon className="w-5 h-5 mr-2" />
-          <span>배당금 ({formatCurrency(totalDividends)})</span>
+          <span className="whitespace-nowrap">배당금 ({formatCurrency(totalDividends)})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('interest')}
+          className={`flex items-center justify-center px-4 py-3 text-sm font-medium transition-colors flex-1 min-w-fit ${
+            activeTab === 'interest'
+              ? 'border-b-2 border-light-primary text-light-primary dark:text-dark-primary'
+              : 'text-light-secondary dark:text-dark-secondary hover:text-light-text dark:hover:text-dark-text'
+          }`}
+        >
+          <CircleStackIcon className="w-5 h-5 mr-2" />
+          <span className="whitespace-nowrap">이용료 ({formatCurrency(totalInterests)})</span>
         </button>
       </div>
 
       <div>
         {activeTab === 'realized' && <RealizedGainsView trades={trades} stocks={stocks} accounts={accounts} historicalGains={historicalGains} setHistoricalGains={setHistoricalGains} setCurrentScreen={setCurrentScreen} />}
         {activeTab === 'dividends' && <DividendsView trades={trades} transactions={transactions} setTransactions={setTransactions} stocks={stocks} accounts={accounts} />}
+        {activeTab === 'interest' && <InterestView transactions={transactions} setTransactions={setTransactions} accounts={accounts} />}
       </div>
     </div>
   );
