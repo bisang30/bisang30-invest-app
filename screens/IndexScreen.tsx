@@ -1596,7 +1596,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                               <div className="pt-4 mt-4 border-t border-gray-200/50 dark:border-slate-700/50">
                                 <p className="text-sm text-light-secondary dark:text-dark-secondary">
                                   앱이 백그라운드(비활성) 상태일 때 시세를 가져오는 주기를 설정합니다. 
-                                  주기가 짧을수록 배터리 소모가 늘어날 수 있습니다. (앱 활성 시에는 5분으로 고정)
+                                  주기가 짧을수록 배터리 소모가 늘어날 수 있습니다. (앱 활성 시에는 15분으로 고정)
                                 </p>
                                 <div className="flex items-end gap-4 mt-2">
                                   <div className="flex-grow">

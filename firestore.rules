@@ -63,7 +63,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create, update: if isOwner(userId) && 
-        hasOnlyAllowedFields(request.resource.data, ['initialPortfolio', 'alertThresholds', 'backgroundFetchInterval', 'showSummary', 'theme', 'homeScreenPreference', 'retirementGoal']);
+        hasOnlyAllowedFields(request.resource.data, ['initialPortfolio', 'alertThresholds', 'backgroundFetchInterval', 'showSummary', 'theme', 'homeScreenPreference', 'retirementGoal', 'password']);
 
       match /appData/{collectionName} {
         allow read: if isOwner(userId);

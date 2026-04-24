@@ -1,6 +1,6 @@
 import React from 'react';
 import { Theme, Screen } from '../types';
-import { SunIcon, MoonIcon, PowerIcon, UserIcon } from './Icons';
+import { SunIcon, MoonIcon, PowerIcon, UserIcon, ArrowPathIcon } from './Icons';
 import { User } from 'firebase/auth';
 
 interface HeaderProps {
@@ -10,6 +10,8 @@ interface HeaderProps {
   onOpenExitModal: () => void;
   user: User | null;
   onLogin: () => void;
+  onRefresh: () => void;
+  isRefreshing?: boolean;
 }
 
 const screenTitles: Record<Screen, string> = {
@@ -27,11 +29,19 @@ const screenTitles: Record<Screen, string> = {
   [Screen.GoalInvesting]: '목표 달성',
 };
 
-const Header: React.FC<HeaderProps> = ({ theme, toggleTheme, currentScreen, onOpenExitModal, user, onLogin }) => {
+const Header: React.FC<HeaderProps> = ({ theme, toggleTheme, currentScreen, onOpenExitModal, user, onLogin, onRefresh, isRefreshing }) => {
   return (
     <header className="flex justify-between items-center mb-6">
       <h1 className="text-2xl font-bold text-light-text dark:text-dark-text">{screenTitles[currentScreen]}</h1>
       <div className="flex items-center gap-4">
+        <button
+          onClick={onRefresh}
+          className={`p-2 rounded-full bg-light-card dark:bg-dark-card shadow-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
+          aria-label="Refresh data"
+          disabled={isRefreshing}
+        >
+          <ArrowPathIcon className="w-6 h-6 text-light-primary dark:text-dark-primary" />
+        </button>
         {!user ? (
           <button
             onClick={onLogin}

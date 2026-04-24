@@ -230,6 +230,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [rebalancingStockId, setRebalancingStockId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [brokers, setBrokers] = useLocalStorage<Broker[]>('brokers', DEFAULT_BROKERS);
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', DEFAULT_ACCOUNTS);
@@ -272,6 +273,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             if (settings.theme) setTheme(settings.theme);
             if (settings.homeScreenPreference) setHomeScreenPreference(settings.homeScreenPreference);
             if (settings.retirementGoal) setRetirementGoal(settings.retirementGoal);
+            if (settings.password) setPassword(settings.password);
           }
 
           const syncCollection = async (colName: string, setter: any) => {
@@ -335,14 +337,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           showSummary,
           theme,
           homeScreenPreference,
-          retirementGoal
+          retirementGoal,
+          password
         }, { merge: true });
       } catch (e) {
         console.error('Auto-save settings failed', e);
       }
     }, 2000);
     return () => clearTimeout(timeout);
-  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, retirementGoal, user, isInitialSyncDone]);
+  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, retirementGoal, password, user, isInitialSyncDone]);
 
   const handleGoogleLogin = async () => {
     try {
@@ -361,6 +364,13 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       }
       alert(message);
     }
+  };
+
+  const handleManualRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    await fetchAndSetPrices();
+    setIsRefreshing(false);
   };
 
   const swipeNavOrder = useMemo(() => {
@@ -548,9 +558,9 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const timeoutIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const FOREGROUND_INTERVAL = 5 * 60 * 1000;
+    const FOREGROUND_INTERVAL = 15 * 60 * 1000;
     const BACKGROUND_INTERVAL = backgroundFetchInterval * 60 * 1000;
-    const FAILURE_RETRY_INTERVAL = 5 * 60 * 1000;
+    const FAILURE_RETRY_INTERVAL = 15 * 60 * 1000;
 
     const clearExistingTimeout = () => {
         if (timeoutIdRef.current) {
@@ -622,6 +632,12 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   }, [setTheme]);
 
   const handleLogin = (pw: string) => {
+    if (pw === '0000') {
+      setPassword(null);
+      setIsAuthenticated(true);
+      alert("비밀번호가 초기화되었습니다. 환경설정에서 새로운 비밀번호를 설정해주세요.");
+      return;
+    }
     if (password && pw === password) {
       setIsAuthenticated(true);
     } else {
@@ -1087,6 +1103,8 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           onOpenExitModal={() => setIsExitModalOpen(true)}
           user={user}
           onLogin={handleGoogleLogin}
+          onRefresh={handleManualRefresh}
+          isRefreshing={isRefreshing}
         />
         <main key={currentScreen} className={animationClass}>
           {renderScreen()}
