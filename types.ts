@@ -98,7 +98,10 @@ export interface AccountTransaction {
 export interface RetirementGoal {
   targetAmount: number;
   targetYear: number;
+  targetMonth?: number;
   currentYear: number;
+  initialAssets?: number;
+  initialRequiredCagr?: number;
   intermediateExpenses: { amount: number; year: number; name: string; isRecurring?: boolean }[];
 }
 

@@ -23,6 +23,7 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
     retirementGoal || {
       targetAmount: 1030000000,
       targetYear: 2032,
+      targetMonth: 3,
       currentYear: 2025,
       intermediateExpenses: [
         { amount: 30000000, year: 2026, name: '여유자금', isRecurring: true },
@@ -30,8 +31,78 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
     }
   );
 
+  const calculateCagr = (
+    startAssetsValue: number, 
+    startYearValue: number, 
+    startMonthValue: number,
+    targetAmountValue: number, 
+    targetYearValue: number, 
+    targetMonthValue: number,
+    expenses: RetirementGoal['intermediateExpenses']
+  ) => {
+    const totalStartMonths = startYearValue * 12 + startMonthValue;
+    const totalTargetMonths = targetYearValue * 12 + targetMonthValue;
+    const monthsToTarget = totalTargetMonths - totalStartMonths;
+    const yearsToTarget = monthsToTarget / 12;
+    
+    if (yearsToTarget <= 0) return 0;
+
+    let low = -0.99; 
+    let high = 10.0; 
+    let r = 0;
+    
+    for (let i = 0; i < 100; i++) {
+        r = (low + high) / 2;
+        let tempAsset = startAssetsValue;
+        
+        // Month-by-month simulation for better accuracy with fractional years
+        for (let m = 1; m <= monthsToTarget; m++) {
+            const currentTotalMonths = totalStartMonths + m;
+            const currentYear = Math.floor((currentTotalMonths - 1) / 12);
+            const currentMonth = ((currentTotalMonths - 1) % 12) + 1;
+            
+            // Apply growth (monthly rate = (1+r)^(1/12) - 1)
+            tempAsset = tempAsset * Math.pow(1 + r, 1/12);
+            
+            // Check for expenses in this month (usually we treat expenses as occurring once a year at the start of that year or similar)
+            // For simplicity, we'll keep the year-based expense logic but apply it in January of that year.
+            if (currentMonth === 1) {
+                expenses.forEach(exp => {
+                    if (exp.isRecurring) {
+                        if (currentYear >= exp.year) tempAsset -= exp.amount;
+                    } else if (exp.year === currentYear) {
+                        tempAsset -= exp.amount;
+                    }
+                });
+            }
+        }
+        
+        if (tempAsset > targetAmountValue) high = r;
+        else low = r;
+    }
+    return r;
+  };
+
   const handleSave = () => {
-    setRetirementGoal(formState);
+    const startYear = formState.currentYear || 2026;
+    const startMonth = 1; // Default to start of year
+    const initialAssets = formState.initialAssets || currentTotalAssets;
+    
+    const initialRequiredCagr = calculateCagr(
+      initialAssets,
+      startYear,
+      startMonth,
+      formState.targetAmount,
+      formState.targetYear,
+      formState.targetMonth || 1,
+      formState.intermediateExpenses
+    );
+
+    setRetirementGoal({
+      ...formState,
+      initialAssets,
+      initialRequiredCagr: initialRequiredCagr * 100
+    });
     setIsEditing(false);
   };
 
@@ -57,43 +128,27 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
   const analysis = useMemo(() => {
     if (!retirementGoal) return null;
     
-    const startYear = 2026;
+    const startYear = retirementGoal.currentYear || 2026;
     const targetYear = retirementGoal.targetYear;
+    const targetMonth = retirementGoal.targetMonth || 1;
     const targetAmount = retirementGoal.targetAmount;
     
     const currentAssets = Number(currentTotalAssets) || 0;
-    const yearsToTarget = targetYear - startYear;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
 
-    if (yearsToTarget <= 0) return null;
+    // Find April 2026 value for "Initial" baseline as requested: "26년 4월말 자산 기준"
+    const april2026Data = (monthlyValues || []).find(mv => mv.date.startsWith('2026-04'));
+    const initialAssets = april2026Data ? april2026Data.totalValue : (retirementGoal.initialAssets || currentAssets);
+    const initialStartYear = 2026;
+    const initialStartMonth = 4;
 
-    // Calculate required CAGR to reach targetAmount from currentAssets
-    // Formula: V_next = V_prev * (1+r) - Expense_next
-    // We find 'r' such that V_targetYear = targetAmount
-    let low = -0.99;
-    let high = 5.0; // Allow up to 500% for extreme cases
-    let r = 0;
-    
-    for (let i = 0; i < 100; i++) {
-      r = (low + high) / 2;
-      let tempAsset = currentAssets;
-      
-      for (let y = startYear + 1; y <= targetYear; y++) {
-        let expenseForYear = 0;
-        retirementGoal.intermediateExpenses.forEach(exp => {
-          if (exp.isRecurring) {
-            if (y >= exp.year) expenseForYear += exp.amount;
-          } else if (exp.year === y) {
-            expenseForYear += exp.amount;
-          }
-        });
-        tempAsset = tempAsset * (1 + r) - expenseForYear;
-      }
-      
-      if (tempAsset > targetAmount) high = r;
-      else low = r;
-    }
-    
-    const requiredCagr = r * 100;
+    // 1. Current Required CAGR (from today to target)
+    const requiredCagr = calculateCagr(currentAssets, currentYear, currentMonth, targetAmount, targetYear, targetMonth, retirementGoal.intermediateExpenses) * 100;
+
+    // 2. Initial CAGR (from April 2026 to target)
+    const initialRequiredCagr = calculateCagr(initialAssets, initialStartYear, initialStartMonth, targetAmount, targetYear, targetMonth, retirementGoal.intermediateExpenses) * 100;
 
     // Generate chart data
     const chartData = [];
@@ -104,29 +159,33 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
       const date = new Date(mv.date);
       const year = date.getFullYear();
       if (year >= 2024) {
-        // Use the latest value for each year
         const existing = historicalMap.get(year);
         if (!existing || date > existing.date) {
           historicalMap.set(year, { value: mv.totalValue, date });
         }
       }
     });
-    // Ensure current year shows current assets
-    historicalMap.set(new Date().getFullYear(), { value: currentAssets, date: new Date() });
+    historicalMap.set(currentYear, { value: currentAssets, date: new Date() });
 
-    let projectedAsset = currentAssets;
-    
-    // Start chart from 2026
-    for (let year = 2026; year <= targetYear; year++) {
+    // Trajectory calculations for the chart (still year-based for display)
+    let initialProjectedAsset = initialAssets;
+    const initialR = initialRequiredCagr / 100;
+
+    let revisedProjectedAsset = currentAssets;
+    const revisedR = requiredCagr / 100;
+
+    const startSimYear = Math.min(initialStartYear, currentYear);
+    for (let year = startSimYear; year <= targetYear; year++) {
       const hist = historicalMap.get(year);
       
       chartData.push({
         year: year.toString(),
-        '목표 궤적': Math.max(0, Math.round(projectedAsset)),
-        '현재 자산': year <= new Date().getFullYear() ? (hist?.value ?? null) : null,
+        '당초 목표궤적': year >= initialStartYear ? Math.max(0, Math.round(initialProjectedAsset)) : null,
+        '변경 목표궤적': year >= currentYear ? Math.max(0, Math.round(revisedProjectedAsset)) : null,
+        '현재 자산': year <= currentYear ? (hist?.value ?? null) : null,
       });
 
-      // Calculate next year's projection
+      // Advance trajectories (year-based internal jump for chart consistency)
       if (year < targetYear) {
         const nextYear = year + 1;
         let expenseForNextYear = 0;
@@ -137,7 +196,17 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
             expenseForNextYear += exp.amount;
           }
         });
-        projectedAsset = projectedAsset * (1 + r) - expenseForNextYear;
+        
+        // For the chart, we approximate the year-end value
+        if (year >= initialStartYear) {
+          initialProjectedAsset = initialProjectedAsset * (1 + initialR) - expenseForNextYear;
+        }
+        
+        if (year >= currentYear) {
+          revisedProjectedAsset = revisedProjectedAsset * (1 + revisedR) - expenseForNextYear;
+        } else {
+          revisedProjectedAsset = currentAssets;
+        }
       }
     }
 
@@ -154,9 +223,12 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
       statusColor = 'bg-amber-500';
       statusText = '주의 요망';
       statusMessage = '목표 달성을 위해 다소 높은 수익률이 필요합니다. 포트폴리오 점검이 필요할 수 있습니다.';
+    } else if (requiredCagr < initialRequiredCagr * 0.8) {
+      statusText = '초과 달성 중';
+      statusMessage = '당초 계획보다 자산이 더 빠르게 증식하고 있습니다! 목표 연도를 앞당기거나 목표 금액을 높일 수 있습니다.';
     }
 
-    return { requiredCagr, chartData, statusColor, statusText, statusMessage };
+    return { requiredCagr, initialRequiredCagr, chartData, statusColor, statusText, statusMessage };
   }, [retirementGoal, currentTotalAssets, monthlyValues]);
 
   if (isEditing) {
@@ -176,15 +248,44 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
         <Card className="overflow-hidden border-none shadow-xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Input
                   label="은퇴 목표 연도"
                   type="number"
-                  placeholder="예: 2045"
+                  placeholder="예: 2032"
                   value={formState.targetYear}
                   onChange={(e) => setFormState({ ...formState, targetYear: parseInt(e.target.value) || 2032 })}
                   className="bg-gray-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-blue-500"
                 />
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-light-secondary dark:text-dark-secondary ml-1">은퇴 목표 월</label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {[3, 6, 9, 12].map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setFormState({ ...formState, targetMonth: m })}
+                        className={`py-2 text-xs font-bold rounded-xl transition-all ${
+                          formState.targetMonth === m 
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
+                          : 'bg-gray-50 dark:bg-slate-800 text-light-secondary dark:text-dark-secondary hover:bg-gray-100'
+                        }`}
+                      >
+                        {m}월
+                      </button>
+                    ))}
+                    <div className="col-span-2">
+                       <Input
+                        label="월 직접입력"
+                        type="number"
+                        placeholder="월"
+                        value={formState.targetMonth || ''}
+                        onChange={(e) => setFormState({ ...formState, targetMonth: parseInt(e.target.value) || 1 })}
+                        className="bg-gray-50 dark:bg-slate-800 border-none h-[38px] text-center"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="space-y-2">
                 <Input
@@ -332,12 +433,18 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
                 <ArrowPathIcon className="w-24 h-24" />
               </div>
               <div className="relative z-10">
-                <p className="text-blue-100 text-sm font-medium mb-1">목표 달성을 위한</p>
+                <p className="text-blue-100 text-sm font-medium mb-1">현재 변경</p>
                 <h3 className="text-xs text-blue-200/80 mb-3 uppercase tracking-wider">필요 연평균 수익률 (CAGR)</h3>
                 <div className="text-4xl font-black flex items-baseline gap-1">
                   {analysis.requiredCagr.toFixed(2)}
                   <span className="text-xl font-bold opacity-80">%</span>
                 </div>
+                {analysis.initialRequiredCagr !== undefined && (
+                  <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+                    <span className="text-[10px] text-blue-100/70 uppercase tracking-widest font-medium">당초 설정시점 기준</span>
+                    <span className="text-xs font-bold text-blue-50 bg-white/10 px-2 py-0.5 rounded-md">{analysis.initialRequiredCagr.toFixed(2)}%</span>
+                  </div>
+                )}
               </div>
             </Card>
 
@@ -372,7 +479,7 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
                   <p className="text-lg font-bold text-light-text dark:text-dark-text">{formatCurrency(currentTotalAssets)}</p>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-xs text-light-secondary dark:text-dark-secondary">목표 자산 ({retirementGoal!.targetYear}년)</span>
+                  <span className="text-xs text-light-secondary dark:text-dark-secondary">목표 자산 ({retirementGoal!.targetYear}년 {retirementGoal!.targetMonth || 1}월)</span>
                   <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(retirementGoal!.targetAmount)}</p>
                 </div>
               </div>
@@ -383,12 +490,16 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-lg font-bold text-light-text dark:text-dark-text flex items-center gap-2">
                 <ChartBarSquareIcon className="w-5 h-5 text-indigo-500" />
-                목표 궤적 시뮬레이션 (2026-{retirementGoal!.targetYear})
+                목표 궤적 시뮬레이션 ({analysis.chartData[0]?.year}-{retirementGoal!.targetYear})
               </h3>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-0.5 border-t border-gray-400"></div>
+                  <span className="text-[10px] text-light-secondary dark:text-dark-secondary">당초 궤적</span>
+                </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-3 h-0.5 border-t-2 border-dashed border-indigo-500"></div>
-                  <span className="text-[10px] text-light-secondary dark:text-dark-secondary">목표 궤적</span>
+                  <span className="text-[10px] text-light-secondary dark:text-dark-secondary">변경 궤적</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-3 h-0.5 bg-emerald-500"></div>
@@ -414,8 +525,9 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
                     tickLine={false}
                     stroke="#94a3b8" 
                     fontSize={11} 
-                    tickFormatter={(value) => `${(value / 100000000).toFixed(0)}억`}
-                    width={40}
+                    tickFormatter={(value) => `${(value / 100000000).toFixed(1)}억`}
+                    width={50}
+                    domain={['auto', 'auto']}
                   />
                   <Tooltip 
                     cursor={{ stroke: '#6366f1', strokeWidth: 1, strokeDasharray: '5 5' }}
@@ -431,7 +543,15 @@ const RetirementGoalScreen: React.FC<RetirementGoalScreenProps> = ({ retirementG
                   />
                   <Line 
                     type="monotone" 
-                    dataKey="목표 궤적" 
+                    dataKey="당초 목표궤적" 
+                    stroke="#94a3b8" 
+                    strokeWidth={1} 
+                    dot={false} 
+                    activeDot={false}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="변경 목표궤적" 
                     stroke="#6366f1" 
                     strokeWidth={2} 
                     strokeDasharray="6 4" 

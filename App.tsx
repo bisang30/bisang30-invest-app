@@ -21,7 +21,7 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { fetchStockPrices } from './services/stockPriceService';
 import { exportAllData } from './services/exportService';
 import { PORTFOLIO_CATEGORIES, DATA_VERSION } from './constants';
-import { auth, db, signInWithGoogle } from './firebase';
+import { auth, db, signInWithGoogle, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { UserIcon } from './components/Icons';
@@ -207,10 +207,11 @@ const useAutoSave = (key: string, data: any, user: any, isInitialSyncDone: boole
     if (!user || !isInitialSyncDone) return;
     
     const timeout = setTimeout(async () => {
+      const path = `users/${user.uid}/appData/${key}`;
       try {
-        await setDoc(doc(db, 'users', user.uid, 'appData', key), { data: JSON.stringify(data) });
+        await setDoc(doc(db, path), { data: JSON.stringify(data) });
       } catch (e) {
-        console.error(`Auto-save failed for ${key}`, e);
+        handleFirestoreError(e, OperationType.WRITE, path);
       }
     }, 2000);
     
@@ -329,8 +330,9 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   useEffect(() => {
     if (!user || !isInitialSyncDone) return;
     const timeout = setTimeout(async () => {
+      const path = `users/${user.uid}`;
       try {
-        await setDoc(doc(db, 'users', user.uid), {
+        await setDoc(doc(db, path), {
           initialPortfolio,
           alertThresholds,
           backgroundFetchInterval,
@@ -341,7 +343,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           password
         }, { merge: true });
       } catch (e) {
-        console.error('Auto-save settings failed', e);
+        handleFirestoreError(e, OperationType.WRITE, path);
       }
     }, 2000);
     return () => clearTimeout(timeout);

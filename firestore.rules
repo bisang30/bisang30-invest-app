@@ -53,7 +53,7 @@ service cloud.firestore {
     }
 
     function hasOnlyAllowedFields(data, allowedFields) {
-      return data.keys().hasOnly(allowedFields);
+      return allowedFields.hasAll(data.keys());
     }
 
     // ===============================================================
@@ -63,7 +63,11 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create, update: if isOwner(userId) && 
-        hasOnlyAllowedFields(request.resource.data, ['initialPortfolio', 'alertThresholds', 'backgroundFetchInterval', 'showSummary', 'theme', 'homeScreenPreference', 'retirementGoal', 'password']);
+        hasOnlyAllowedFields(request.resource.data, [
+          'initialPortfolio', 'alertThresholds', 'backgroundFetchInterval', 
+          'showSummary', 'theme', 'homeScreenPreference', 'retirementGoal', 
+          'password', 'email', 'displayName', 'photoURL', 'lastLogin'
+        ]);
 
       match /appData/{collectionName} {
         allow read: if isOwner(userId);
