@@ -202,6 +202,7 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
             pnlRate: (costOfSoldShares > 0) ? (realizedPnl / costOfSoldShares) * 100 : 0,
             isHistorical: false,
             etfProfitTax,
+            preTaxPnl: baseRealizedPnl,
           });
         }
       }
@@ -216,6 +217,7 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
       realizedPnl: hg.realizedPnl,
       pnlRate: null,
       isHistorical: true,
+      preTaxPnl: hg.realizedPnl,
     }));
 
     return [...sellTradesWithPL, ...historicalGainsFormatted];
@@ -311,10 +313,13 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
               <td className="p-3 font-semibold">{item.stockName}</td>
               <td className="p-3 text-right">{item.sellAmount === null ? '-' : formatCurrency(item.sellAmount)}</td>
               <td className="p-3 text-right">
-                <span className={`block font-bold ${item.realizedPnl >= 0 ? 'text-profit' : 'text-loss'}`}>{formatCurrency(item.realizedPnl)}</span>
+                <span className={`block font-bold ${item.realizedPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                  {formatCurrency(item.realizedPnl)} <span className="text-[11px] font-normal text-light-secondary dark:text-dark-secondary">(세후)</span>
+                </span>
                 {item.etfProfitTax > 0 && (
-                  <span className="block text-[10px] text-amber-600 dark:text-amber-400 font-normal">
-                    (배당소득세 -{formatCurrency(item.etfProfitTax)} 차감)
+                  <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-normal leading-relaxed">
+                    세전: {formatCurrency(item.preTaxPnl)}<br/>
+                    배당소득세: -{formatCurrency(item.etfProfitTax)} (15.4%)
                   </span>
                 )}
               </td>
@@ -326,12 +331,15 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
           <div className="flex justify-between items-start">
               <div><p className="font-bold text-light-text dark:text-dark-text">{item.stockName}</p><p className="text-sm text-light-secondary dark:text-dark-secondary">{item.date}</p></div>
               <div className="text-right flex-shrink-0">
-                <p className={`font-bold text-lg ${item.realizedPnl >= 0 ? 'text-profit' : 'text-loss'}`}>{formatCurrency(item.realizedPnl)}</p>
+                <p className={`font-bold text-lg ${item.realizedPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                  {formatCurrency(item.realizedPnl)} <span className="text-xs font-normal text-light-secondary dark:text-dark-secondary">세후</span>
+                </p>
                 {item.pnlRate !== null && <p className={`text-sm font-semibold ${item.realizedPnl >= 0 ? 'text-profit' : 'text-loss'}`}>{item.pnlRate.toFixed(2)}%</p>}
                 {item.etfProfitTax > 0 && (
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                    (배당소득세 -{formatCurrency(item.etfProfitTax)})
-                  </p>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 text-right mt-1 font-medium space-y-0.5 leading-tight">
+                    <p>세전: {formatCurrency(item.preTaxPnl)}</p>
+                    <p className="text-amber-600 dark:text-amber-400">배당소득세(15.4%): -{formatCurrency(item.etfProfitTax)}</p>
+                  </div>
                 )}
               </div>
           </div>

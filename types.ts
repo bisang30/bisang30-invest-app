@@ -84,6 +84,7 @@ export interface Trade {
   tradeType: TradeType;
   tradeMethod: string; // e.g. 'Online', 'Mobile'
   goalId?: string;
+  customFeeAndTax?: number;
 }
 
 export interface AccountTransaction {

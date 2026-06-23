@@ -1017,7 +1017,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           alertThresholds={alertThresholds}
         />;
       case Screen.TradeHistory:
-        return <TradeHistoryScreen trades={trades} setTrades={setTrades} accounts={accounts} stocks={stocks} investmentGoals={investmentGoals} />;
+        return <TradeHistoryScreen trades={trades} setTrades={setTrades} accounts={accounts} stocks={stocks} investmentGoals={investmentGoals} feeSettings={feeSettings} />;
       case Screen.AccountTransactions:
         return <AccountTransactionsScreen 
           transactions={transactions} 

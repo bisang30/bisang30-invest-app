@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
-import { Trade, TradeType, Account, Stock, InvestmentGoal } from '../types';
+import { Trade, TradeType, Account, Stock, InvestmentGoal, FeeSettings } from '../types';
 import { ArrowDownCircleIcon, ArrowUpCircleIcon, Cog8ToothIcon, CalendarDaysIcon } from '../components/Icons';
+import { calculateTradeFeeAndTax } from '../services/feeService';
 
 interface TradeHistoryScreenProps {
   trades: Trade[];
@@ -13,6 +14,7 @@ interface TradeHistoryScreenProps {
   accounts: Account[];
   stocks: Stock[];
   investmentGoals: InvestmentGoal[];
+  feeSettings: FeeSettings;
 }
 
 interface TradeWithPL extends Trade {
@@ -29,9 +31,10 @@ const formatNumber = (value: number | string): string => {
   return num.toLocaleString('ko-KR');
 };
 
-const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrades, accounts, stocks, investmentGoals }) => {
+const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrades, accounts, stocks, investmentGoals, feeSettings }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
+  const [isFeeAndTaxManual, setIsFeeAndTaxManual] = useState(false);
   const [formState, setFormState] = useState<Omit<Trade, 'id'>>({
     accountId: (accounts || [])[0]?.id || '',
     date: new Date().toISOString().split('T')[0],
@@ -41,6 +44,7 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
     tradeType: TradeType.Buy,
     tradeMethod: '직접매매',
     goalId: undefined,
+    customFeeAndTax: undefined,
   });
   
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -56,6 +60,50 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
 
   const stockMap = useMemo(() => new Map<string, Stock>((stocks || []).map(s => [s.id, s])), [stocks]);
   const accountMap = useMemo(() => new Map<string, Account>((accounts || []).map(a => [a.id, a])), [accounts]);
+
+  // 거래의 수수료/세금을 계산하는 헬퍼 함수
+  const getTradeFeeAndTaxAmount = (trade: Trade) => {
+    if (trade.customFeeAndTax !== undefined && trade.customFeeAndTax !== null) {
+      return trade.customFeeAndTax;
+    }
+    const stock = stockMap.get(trade.stockId);
+    const account = accountMap.get(trade.accountId);
+    const calc = calculateTradeFeeAndTax(trade, stock, account, feeSettings);
+    return calc.fee + calc.tax;
+  };
+
+  // 실시간 예상 제비용 자동 계산
+  useEffect(() => {
+    if (isFeeAndTaxManual) return;
+    if (!formState.stockId || !formState.accountId) return;
+
+    const stock = stockMap.get(formState.stockId);
+    const account = accountMap.get(formState.accountId);
+
+    const tempTrade = {
+      tradeType: formState.tradeType,
+      quantity: formState.quantity,
+      price: formState.price,
+    };
+    
+    const calc = calculateTradeFeeAndTax(tempTrade, stock, account, feeSettings);
+    const expectedFeeAndTax = Math.round(calc.fee + calc.tax); // 원 단위 반올림
+
+    setFormState(prev => ({
+      ...prev,
+      customFeeAndTax: expectedFeeAndTax,
+    }));
+  }, [
+    formState.quantity,
+    formState.price,
+    formState.tradeType,
+    formState.stockId,
+    formState.accountId,
+    isFeeAndTaxManual,
+    feeSettings,
+    stockMap,
+    accountMap,
+  ]);
   
   const tradesWithPL = useMemo((): TradeWithPL[] => {
     const holdings: { [stockId: string]: { quantity: number; totalCost: number } } = {};
@@ -172,9 +220,17 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
       setFormState(prev => ({ ...prev, [name]: value }));
     }
   };
+
+  const handleFeeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const numValue = parseFloat(value.replace(/,/g, ''));
+    setIsFeeAndTaxManual(true);
+    setFormState(prev => ({ ...prev, customFeeAndTax: isNaN(numValue) ? 0 : numValue }));
+  };
   
   const handleAddClick = () => {
     setEditingTrade(null);
+    setIsFeeAndTaxManual(false);
     setFormState({
       accountId: (accounts || [])[0]?.id || '',
       date: new Date().toISOString().split('T')[0],
@@ -184,12 +240,15 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
       tradeType: TradeType.Buy,
       tradeMethod: '직접매매',
       goalId: undefined,
+      customFeeAndTax: undefined,
     });
     setIsModalOpen(true);
   };
 
   const handleEditClick = (trade: Trade) => {
     setEditingTrade(trade);
+    const hasCustomFee = trade.customFeeAndTax !== undefined && trade.customFeeAndTax !== null;
+    setIsFeeAndTaxManual(hasCustomFee);
     setFormState({
       accountId: trade.accountId,
       date: trade.date,
@@ -199,6 +258,7 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
       tradeType: trade.tradeType,
       tradeMethod: trade.tradeMethod,
       goalId: trade.goalId,
+      customFeeAndTax: trade.customFeeAndTax,
     });
     setIsModalOpen(true);
   };
@@ -239,7 +299,12 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
       return;
     }
 
-    const tradeToSave = { ...formState, quantity, price };
+    const tradeToSave: Omit<Trade, 'id'> = {
+      ...formState,
+      quantity,
+      price,
+      customFeeAndTax: isFeeAndTaxManual ? formState.customFeeAndTax : undefined,
+    };
 
     if (editingTrade) {
       setTrades(prev => (prev || []).map(t => (t.id === editingTrade.id ? { ...editingTrade, ...tradeToSave } : t)));
@@ -342,10 +407,17 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
                                   </div>
                               </div>
                               <div className="mt-3 pt-3 border-t border-gray-200/50 dark:border-slate-700/50 flex justify-between items-end">
-                                <div className="text-sm text-light-secondary dark:text-dark-secondary">
+                                <div className="text-sm text-light-secondary dark:text-dark-secondary flex flex-wrap gap-y-1 items-center">
                                   <span>수량: {(Number(trade.quantity) || 0).toLocaleString()}</span>
                                   <span className="mx-2">|</span>
                                   <span>단가: {formatCurrency(Number(trade.price) || 0)}</span>
+                                  <span className="mx-2">|</span>
+                                  <span>
+                                    제비용: {formatCurrency(getTradeFeeAndTaxAmount(trade))}
+                                    {trade.customFeeAndTax !== undefined && trade.customFeeAndTax !== null && (
+                                      <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-semibold bg-amber-50 dark:bg-amber-950/40 px-1 py-0.5 rounded border border-amber-200/40 dark:border-amber-900/40">(수동)</span>
+                                    )}
+                                  </span>
                                 </div>
                                 <Button variant="secondary" onClick={() => handleEditClick(trade)} className="px-2 py-1 text-xs">
                                   관리
@@ -383,6 +455,46 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
             <option value="">자산배분 포트폴리오</option>
             {(investmentGoals || []).map(goal => <option key={goal.id} value={goal.id}>{goal.name}</option>)}
           </Select>
+          <div className="space-y-1">
+            <div className="flex justify-between items-center mb-1">
+              <label htmlFor="customFeeAndTax" className="text-xs font-semibold text-light-text dark:text-dark-text">매매비용 직접 입력 (수수료 및 거래세)</label>
+              {isFeeAndTaxManual && (
+                <button
+                  type="button"
+                  onClick={() => setIsFeeAndTaxManual(false)}
+                  className="text-xs text-light-primary dark:text-dark-primary font-semibold hover:underline flex items-center gap-0.5"
+                >
+                  자동 계산값 사용
+                </button>
+              )}
+            </div>
+            <div className="relative">
+              <Input
+                label=""
+                id="customFeeAndTax"
+                name="customFeeAndTax"
+                type="text"
+                inputMode="numeric"
+                value={formatNumber(formState.customFeeAndTax ?? 0)}
+                onChange={handleFeeInputChange}
+                required
+                className={isFeeAndTaxManual ? "border-amber-400 focus:ring-amber-500/50 dark:border-amber-500" : ""}
+              />
+              {!isFeeAndTaxManual && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 pointer-events-none">
+                  자동수정 중
+                </span>
+              )}
+              {isFeeAndTaxManual && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/40 dark:border-amber-800/40 pointer-events-none font-semibold">
+                  수동수정 됨
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-light-secondary dark:text-dark-secondary leading-normal">
+              ※ {isFeeAndTaxManual ? "실제 처분/취득 비용과 차이가 커 직접 수정한 상태입니다." : "수량·단가 및 계좌정보에 근거하여 거래 비용이 실시간 추정 계산됩니다."}
+            </p>
+          </div>
           <div className="flex justify-between items-center pt-4">
             <div>
               {editingTrade && (

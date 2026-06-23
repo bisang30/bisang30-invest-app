@@ -25,7 +25,7 @@ export function isTaxFreeAccount(account: Account | undefined): boolean {
  * 매수/매도 거래 시 발생하는 수수료 및 거래세 계산
  */
 export function calculateTradeFeeAndTax(
-  trade: Pick<Trade, 'tradeType' | 'quantity' | 'price'>,
+  trade: Pick<Trade, 'tradeType' | 'quantity' | 'price' | 'customFeeAndTax'>,
   stock: Stock | undefined,
   account: Account | undefined,
   feeSettings: FeeSettings
@@ -33,6 +33,24 @@ export function calculateTradeFeeAndTax(
   const quantity = Number(trade.quantity) || 0;
   const price = Number(trade.price) || 0;
   const amount = quantity * price;
+
+  // 사용자가 수동으로 매매비용(수수료+제세금)을 기입한 경우
+  if (trade.customFeeAndTax !== undefined && trade.customFeeAndTax !== null) {
+    const customVal = Number(trade.customFeeAndTax) || 0;
+    if (trade.tradeType === TradeType.Buy) {
+      return {
+        fee: customVal,
+        tax: 0,
+        total: amount + customVal,
+      };
+    } else {
+      return {
+        fee: customVal,
+        tax: 0,
+        total: amount - customVal,
+      };
+    }
+  }
 
   // 면제 대상 계좌인 경우 수수료 및 거래세 모두 0
   if (isTaxFreeAccount(account)) {
