@@ -4,7 +4,8 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
-import { Trade, Stock, Account, AccountTransaction, TradeType, TransactionType, Screen, HistoricalGain } from '../types';
+import { Trade, Stock, Account, AccountTransaction, TradeType, TransactionType, Screen, HistoricalGain, FeeSettings } from '../types';
+import { calculateTradeFeeAndTax, calculateDividendTax } from '../services/feeService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { CurrencyWonIcon, BanknotesIcon, Cog8ToothIcon, ChartBarIcon, CircleStackIcon, CalendarDaysIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
 
@@ -138,9 +139,10 @@ interface RealizedGainsViewProps {
   historicalGains: HistoricalGain[];
   setHistoricalGains: React.Dispatch<React.SetStateAction<HistoricalGain[]>>;
   setCurrentScreen: (screen: Screen) => void;
+  feeSettings: FeeSettings;
 }
 
-const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, accounts, historicalGains, setHistoricalGains, setCurrentScreen }) => {
+const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, accounts, historicalGains, setHistoricalGains, setCurrentScreen, feeSettings }) => {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const stockMap = useMemo(() => new Map((stocks || []).map(s => [s.id, s])), [stocks]);
   const accountMap = useMemo(() => new Map((accounts || []).map(a => [a.id, a.name])), [accounts]);
@@ -156,6 +158,7 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
     const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const sellTradesWithPL: any[] = [];
+    const accountsMapObj = new Map((accounts || []).map(a => [a.id, a]));
 
     sortedTrades.forEach(trade => {
       if (!trade.stockId || !trade.accountId) return;
@@ -164,25 +167,31 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
       }
       const tradeQuantity = Number(trade.quantity) || 0;
       const tradePrice = Number(trade.price) || 0;
+
+      const stock = stockMap.get(trade.stockId);
+      const account = accountsMapObj.get(trade.accountId);
+      const calc = calculateTradeFeeAndTax(trade, stock, account, feeSettings);
+
       if (trade.tradeType === TradeType.Buy) {
         holdings[trade.stockId].quantity += tradeQuantity;
-        holdings[trade.stockId].totalCost += tradeQuantity * tradePrice;
+        holdings[trade.stockId].totalCost += calc.total; // 매물 수수료 취득총액에 포함
       } else { // SELL
         const currentHolding = holdings[trade.stockId];
         if (currentHolding.quantity > 0) {
           const avgBuyPrice = currentHolding.totalCost / currentHolding.quantity;
-          const realizedPnl = (tradePrice - avgBuyPrice) * tradeQuantity;
           const costOfSoldShares = avgBuyPrice * Math.min(tradeQuantity, currentHolding.quantity);
-          holdings[trade.stockId].totalCost -= costOfSoldShares;
-          holdings[trade.stockId].quantity -= tradeQuantity;
-          if (holdings[trade.stockId].quantity < 1e-9) {
-            holdings[trade.stockId].quantity = 0;
-            holdings[trade.stockId].totalCost = 0;
+          const realizedPnl = calc.total - costOfSoldShares; // 매도 실수령액(수수료/거래세 차감) - 매수한 원래 평균 취득가액
+
+          currentHolding.totalCost -= costOfSoldShares;
+          currentHolding.quantity -= tradeQuantity;
+          if (currentHolding.quantity < 1e-9) {
+            currentHolding.quantity = 0;
+            currentHolding.totalCost = 0;
           }
           sellTradesWithPL.push({
             ...trade,
             stockName: stockMap.get(trade.stockId)?.name || 'N/A',
-            sellAmount: tradeQuantity * tradePrice,
+            sellAmount: calc.total, // 수수료/세금을 제하고 손에 쥔 최종 매도액
             realizedPnl,
             pnlRate: (costOfSoldShares > 0) ? (realizedPnl / costOfSoldShares) * 100 : 0,
             isHistorical: false,
@@ -203,7 +212,7 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
     }));
 
     return [...sellTradesWithPL, ...historicalGainsFormatted];
-  }, [trades, historicalGains, stockMap]);
+  }, [trades, historicalGains, stockMap, accounts, feeSettings]);
   
   const filterOptions = useMemo(() => {
     const years = new Set<string>();
@@ -319,9 +328,10 @@ interface DividendsViewProps {
   stocks: Stock[];
   accounts: Account[];
   trades: Trade[];
+  feeSettings: FeeSettings; // 추가!
 }
 
-const DividendsView: React.FC<DividendsViewProps> = ({ transactions, setTransactions, stocks, accounts, trades }) => {
+const DividendsView: React.FC<DividendsViewProps> = ({ transactions, setTransactions, stocks, accounts, trades, feeSettings }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTx, setEditingTx] = useState<AccountTransaction | null>(null);
     const [txToDelete, setTxToDelete] = useState<AccountTransaction | null>(null);
@@ -489,26 +499,50 @@ const DividendsView: React.FC<DividendsViewProps> = ({ transactions, setTransact
                                 </div>
                                 {isExpanded && (
                                     <div className="px-4 pb-4 border-t border-gray-200/50 dark:border-slate-700/50 space-y-2">
-                                        {group.transactions.map(tx => (
-                                          <div key={tx.id} className="bg-white dark:bg-dark-card/50 p-3 rounded-md flex justify-between items-center">
-                                              <div>
-                                                  <p className="font-semibold">{tx.date}</p>
-                                                  <p className="text-sm text-light-secondary dark:text-dark-secondary">
-                                                      {groupBy === 'stock'
-                                                          ? `계좌: ${accountMap.get(tx.accountId) || 'N/A'}`
-                                                          : `종목: ${tx.stockId ? stockMap.get(tx.stockId) : 'N/A'}`
-                                                      }
-                                                  </p>
-                                              </div>
-                                              <div className="text-right">
-                                                  <p className="font-bold text-profit">{formatCurrency(tx.amount)}</p>
-                                                  <div className="mt-1 space-x-2">
-                                                      <Button onClick={() => handleEditClick(tx)} variant="secondary" className="px-2 py-1 text-xs">수정</Button>
-                                                      <Button onClick={() => handleDeleteClick(tx)} className="px-2 py-1 text-xs bg-loss text-white">삭제</Button>
-                                                  </div>
-                                              </div>
-                                          </div>
-                                        ))}
+                                        {group.transactions.map(tx => {
+                                          const stockObj = stocks.find(s => s.id === tx.stockId);
+                                          const accountObj = accounts.find(a => a.id === tx.accountId);
+                                          const rawVal = Number(tx.amount) || 0;
+                                          const divTaxResult = calculateDividendTax(rawVal, stockObj, accountObj, feeSettings);
+                                          const divTax = divTaxResult.tax;
+                                          const netVal = divTaxResult.netAmount;
+
+                                          return (
+                                            <div key={tx.id} className="bg-white dark:bg-dark-card/50 p-3 rounded-md flex justify-between items-center">
+                                                <div>
+                                                    <p className="font-semibold">{tx.date}</p>
+                                                    <p className="text-sm text-light-secondary dark:text-dark-secondary">
+                                                        {groupBy === 'stock'
+                                                            ? `계좌: ${accountMap.get(tx.accountId) || 'N/A'}`
+                                                            : `종목: ${tx.stockId ? stockMap.get(tx.stockId) : 'N/A'}`
+                                                        }
+                                                    </p>
+                                                    {divTax > 0 && (
+                                                      <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium pb-1">
+                                                        배당소득세 공제: -{formatCurrency(divTax)} (15.4%)
+                                                      </p>
+                                                    )}
+                                                    {accountObj?.isTaxFree && (
+                                                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold pb-1">
+                                                        비용면제 계좌 적용 (소득세 0원)
+                                                      </p>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-profit">{formatCurrency(netVal)}</p>
+                                                    {divTax > 0 && (
+                                                      <p className="text-xs text-light-secondary dark:text-dark-secondary line-through">
+                                                        세전: {formatCurrency(rawVal)}
+                                                      </p>
+                                                    )}
+                                                    <div className="mt-1 space-x-2">
+                                                        <Button onClick={() => handleEditClick(tx)} variant="secondary" className="px-2 py-1 text-xs">수정</Button>
+                                                        <Button onClick={() => handleDeleteClick(tx)} className="px-2 py-1 text-xs bg-loss text-white">삭제</Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                          );
+                                        })}
                                     </div>
                                 )}
                             </div>
@@ -720,28 +754,41 @@ interface ProfitManagementScreenProps {
   setCurrentScreen: (screen: Screen) => void;
   historicalGains: HistoricalGain[];
   setHistoricalGains: React.Dispatch<React.SetStateAction<HistoricalGain[]>>;
+  feeSettings: FeeSettings;
 }
 
-const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades, stocks, accounts, transactions, setTransactions, setCurrentScreen, historicalGains, setHistoricalGains }) => {
+const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades, stocks, accounts, transactions, setTransactions, setCurrentScreen, historicalGains, setHistoricalGains, feeSettings }) => {
   const [activeTab, setActiveTab] = useState('realized');
 
   const totalRealizedGains = useMemo(() => {
+    const stockMap = new Map((stocks || []).map(s => [s.id, s]));
+    const accountMap = new Map((accounts || []).map(a => [a.id, a]));
+
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
     const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     let totalPnlFromTrades = 0;
+
     sortedTrades.forEach(trade => {
-        if (!trade.stockId) return;
+        if (!trade.stockId || !trade.accountId) return;
         if (!holdings[trade.stockId]) holdings[trade.stockId] = { quantity: 0, totalCost: 0 };
-        const qty = Number(trade.quantity) || 0, price = Number(trade.price) || 0;
+        const qty = Number(trade.quantity) || 0;
+        const price = Number(trade.price) || 0;
+
+        const stock = stockMap.get(trade.stockId);
+        const account = accountMap.get(trade.accountId);
+        const calc = calculateTradeFeeAndTax(trade, stock, account, feeSettings);
+
         if (trade.tradeType === TradeType.Buy) {
             holdings[trade.stockId].quantity += qty;
-            holdings[trade.stockId].totalCost += qty * price;
+            holdings[trade.stockId].totalCost += calc.total; // 매물 수수료가 취득총액에 포함됨
         } else {
             const h = holdings[trade.stockId];
             if (h.quantity > 0) {
                 const avgBuyPrice = h.totalCost / h.quantity;
-                totalPnlFromTrades += (price - avgBuyPrice) * qty;
                 const costOfSold = avgBuyPrice * Math.min(qty, h.quantity);
+                const realizedPnl = calc.total - costOfSold; // 매도 실수령액(수수료/거래세 차감) - 원래의 평균취득원가
+
+                totalPnlFromTrades += realizedPnl;
                 h.totalCost -= costOfSold;
                 h.quantity -= qty;
                 if (h.quantity < 1e-9) { h.quantity = 0; h.totalCost = 0; }
@@ -750,7 +797,7 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
     });
     const totalPnlFromHistory = (historicalGains || []).reduce((sum, hg) => sum + hg.realizedPnl, 0);
     return totalPnlFromTrades + totalPnlFromHistory;
-  }, [trades, historicalGains]);
+  }, [trades, historicalGains, stocks, accounts, feeSettings]);
 
   const totalDividends = useMemo(() => {
     return (transactions || [])
@@ -803,8 +850,8 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
       </div>
 
       <div>
-        {activeTab === 'realized' && <RealizedGainsView trades={trades} stocks={stocks} accounts={accounts} historicalGains={historicalGains} setHistoricalGains={setHistoricalGains} setCurrentScreen={setCurrentScreen} />}
-        {activeTab === 'dividends' && <DividendsView trades={trades} transactions={transactions} setTransactions={setTransactions} stocks={stocks} accounts={accounts} />}
+        {activeTab === 'realized' && <RealizedGainsView trades={trades} stocks={stocks} accounts={accounts} historicalGains={historicalGains} setHistoricalGains={setHistoricalGains} setCurrentScreen={setCurrentScreen} feeSettings={feeSettings} />}
+        {activeTab === 'dividends' && <DividendsView trades={trades} transactions={transactions} setTransactions={setTransactions} stocks={stocks} accounts={accounts} feeSettings={feeSettings} />}
         {activeTab === 'interest' && <InterestView transactions={transactions} setTransactions={setTransactions} accounts={accounts} />}
       </div>
     </div>

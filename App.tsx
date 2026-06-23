@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Screen, Theme, TradeType, Account, Broker, Stock, Trade, AccountTransaction, BankAccount, InitialPortfolio, MonthlyAccountValue, PortfolioCategory, HistoricalGain, AlertThresholds, TransactionType, InvestmentGoal, RetirementGoal } from './types';
+import { Screen, Theme, TradeType, Account, Broker, Stock, Trade, AccountTransaction, BankAccount, InitialPortfolio, MonthlyAccountValue, PortfolioCategory, HistoricalGain, AlertThresholds, TransactionType, InvestmentGoal, RetirementGoal, FeeSettings } from './types';
 import HomeScreen from './screens/HomeScreen';
 import StockStatusScreen from './screens/StockStatusScreen';
 import AccountStatusScreen from './screens/AccountStatusScreen';
@@ -33,29 +33,38 @@ const DEFAULT_BROKERS: Broker[] = [
 ];
 
 const DEFAULT_ACCOUNTS: Account[] = [
-  { id: 'acc-mirae-1', name: '일반종합', brokerId: defaultBrokerId },
-  { id: 'acc-mirae-2', name: 'CMA', brokerId: defaultBrokerId },
-  { id: 'acc-mirae-3', name: 'ISA(중개형)', brokerId: defaultBrokerId },
-  { id: 'acc-mirae-4', name: '연금저축1', brokerId: defaultBrokerId },
-  { id: 'acc-mirae-5', name: '연금저축(이전)', brokerId: defaultBrokerId },
-  { id: 'acc-mirae-6', name: '개인IRP', brokerId: defaultBrokerId },
-  { id: 'acc-mirae-7', name: '퇴직DC', brokerId: defaultBrokerId },
+  { id: 'acc-mirae-1', name: '일반종합', brokerId: defaultBrokerId, accountType: '일반', isTaxFree: false },
+  { id: 'acc-mirae-2', name: 'CMA', brokerId: defaultBrokerId, accountType: '일반', isTaxFree: false },
+  { id: 'acc-mirae-3', name: 'ISA(중개형)', brokerId: defaultBrokerId, accountType: 'ISA', isTaxFree: true },
+  { id: 'acc-mirae-4', name: '연금저축1', brokerId: defaultBrokerId, accountType: '연금저축', isTaxFree: true },
+  { id: 'acc-mirae-5', name: '연금저축(이전)', brokerId: defaultBrokerId, accountType: '연금저축', isTaxFree: true },
+  { id: 'acc-mirae-6', name: '개인IRP', brokerId: defaultBrokerId, accountType: 'IRP', isTaxFree: true },
+  { id: 'acc-mirae-7', name: '퇴직DC', brokerId: defaultBrokerId, accountType: '퇴직DC', isTaxFree: true },
 ];
 
+const DEFAULT_FEE_SETTINGS: FeeSettings = {
+  buyFeeRate: 0.0036,
+  sellFeeRate: 0.0036,
+  stockTaxRate: 0.2,
+  etfTaxRate: 0,
+  stockDividendTaxRate: 0,
+  etfDividendTaxRate: 15.4
+};
+
 const DEFAULT_STOCKS: Stock[] = [
-  { id: 'stock-0043B0', ticker: '0043B0', name: 'Tiger 머니마켓액티브', category: PortfolioCategory.Cash, isPortfolio: true },
-  { id: 'stock-497880', ticker: '497880', name: 'SOL CD금리&머니마켓액티브', category: PortfolioCategory.Cash, isPortfolio: true },
-  { id: 'stock-411060', ticker: '411060', name: 'ACE KRX금현물', category: PortfolioCategory.Alternatives, isPortfolio: true },
-  { id: 'stock-0064K0', ticker: '0064K0', name: 'Kodex 금액티브', category: PortfolioCategory.Alternatives, isPortfolio: true },
-  { id: 'stock-365780', ticker: '365780', name: 'ACE 국고채10년', category: PortfolioCategory.Bonds, isPortfolio: true },
-  { id: 'stock-305080', ticker: '305080', name: 'Tiger 미국채10년 선물', category: PortfolioCategory.Bonds, isPortfolio: true },
-  { id: 'stock-0085P0', ticker: '0085P0', name: 'ACE 미국10년국채액티브', category: PortfolioCategory.Bonds, isPortfolio: true },
-  { id: 'stock-161510', ticker: '161510', name: 'Plus 고배당주', category: PortfolioCategory.Dividend, isPortfolio: true },
-  { id: 'stock-0098N0', ticker: '0098N0', name: 'Plus 자사주매입고배당주', category: PortfolioCategory.Dividend, isPortfolio: true },
-  { id: 'stock-294400', ticker: '294400', name: 'Kiwoom 200TR', category: PortfolioCategory.Stock, isPortfolio: true },
-  { id: 'stock-360750', ticker: '360750', name: 'Tiger 미국S&P500', category: PortfolioCategory.Stock, isPortfolio: true },
-  { id: 'stock-379810', ticker: '379810', name: 'Kodex 미국나스닥100', category: PortfolioCategory.Stock, isPortfolio: true },
-  { id: 'stock-283580', ticker: '283580', name: 'Kodex 차이나CSI300', category: PortfolioCategory.Stock, isPortfolio: true },
+  { id: 'stock-0043B0', ticker: '0043B0', name: 'Tiger 머니마켓액티브', category: PortfolioCategory.Cash, isPortfolio: true, isEtf: true },
+  { id: 'stock-497880', ticker: '497880', name: 'SOL CD금리&머니마켓액티브', category: PortfolioCategory.Cash, isPortfolio: true, isEtf: true },
+  { id: 'stock-411060', ticker: '411060', name: 'ACE KRX금현물', category: PortfolioCategory.Alternatives, isPortfolio: true, isEtf: true },
+  { id: 'stock-0064K0', ticker: '0064K0', name: 'Kodex 금액티브', category: PortfolioCategory.Alternatives, isPortfolio: true, isEtf: true },
+  { id: 'stock-365780', ticker: '365780', name: 'ACE 국고채10년', category: PortfolioCategory.Bonds, isPortfolio: true, isEtf: true },
+  { id: 'stock-305080', ticker: '305080', name: 'Tiger 미국채10년 선물', category: PortfolioCategory.Bonds, isPortfolio: true, isEtf: true },
+  { id: 'stock-0085P0', ticker: '0085P0', name: 'ACE 미국10년국채액티브', category: PortfolioCategory.Bonds, isPortfolio: true, isEtf: true },
+  { id: 'stock-161510', ticker: '161510', name: 'Plus 고배당주', category: PortfolioCategory.Dividend, isPortfolio: true, isEtf: true },
+  { id: 'stock-0098N0', ticker: '0098N0', name: 'Plus 자사주매입고배당주', category: PortfolioCategory.Dividend, isPortfolio: true, isEtf: true },
+  { id: 'stock-294400', ticker: '294400', name: 'Kiwoom 200TR', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
+  { id: 'stock-360750', ticker: '360750', name: 'Tiger 미국S&P500', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
+  { id: 'stock-379810', ticker: '379810', name: 'Kodex 미국나스닥100', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
+  { id: 'stock-283580', ticker: '283580', name: 'Kodex 차이나CSI300', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
 ];
 
 const DEFAULT_INITIAL_PORTFOLIO: InitialPortfolio = {
@@ -249,6 +258,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const [homeScreenPreference, setHomeScreenPreference] = useLocalStorage<'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING'>('homeScreenPreference', Screen.HoldingsStatus);
   const [investmentGoals, setInvestmentGoals] = useLocalStorage<InvestmentGoal[]>('investmentGoals', []);
   const [retirementGoal, setRetirementGoal] = useLocalStorage<RetirementGoal | null>('retirementGoal', null);
+  const [feeSettings, setFeeSettings] = useLocalStorage<FeeSettings>('feeSettings', DEFAULT_FEE_SETTINGS);
 
 
   const [animationClass, setAnimationClass] = useState('');
@@ -275,6 +285,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             if (settings.homeScreenPreference) setHomeScreenPreference(settings.homeScreenPreference);
             if (settings.retirementGoal) setRetirementGoal(settings.retirementGoal);
             if (settings.password) setPassword(settings.password);
+            if (settings.feeSettings) setFeeSettings(settings.feeSettings);
           }
 
           const syncCollection = async (colName: string, setter: any) => {
@@ -340,14 +351,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           theme,
           homeScreenPreference,
           retirementGoal,
-          password
+          password,
+          feeSettings
         }, { merge: true });
       } catch (e) {
         handleFirestoreError(e, OperationType.WRITE, path);
       }
     }, 2000);
     return () => clearTimeout(timeout);
-  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, retirementGoal, password, user, isInitialSyncDone]);
+  }, [initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, retirementGoal, password, feeSettings, user, isInitialSyncDone]);
 
   const handleGoogleLogin = async () => {
     try {
@@ -1024,6 +1036,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           setCurrentScreen={navigateToScreen}
           historicalGains={historicalGains}
           setHistoricalGains={setHistoricalGains}
+          feeSettings={feeSettings}
         />;
       case Screen.MonthlyHistory:
         return <MonthlyHistoryScreen
@@ -1064,6 +1077,8 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             homeScreenPreference={homeScreenPreference}
             setHomeScreenPreference={setHomeScreenPreference}
             user={user}
+            feeSettings={feeSettings}
+            setFeeSettings={setFeeSettings}
           />;
       case Screen.Menu:
         return <MenuScreen setCurrentScreen={navigateToScreen} />;

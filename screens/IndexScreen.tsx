@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
-import { Broker, Account, Stock, InitialPortfolio, PortfolioCategory, Trade, AccountTransaction, BankAccount, Theme, TradeType, TransactionType, MonthlyAccountValue, HistoricalGain, AlertThresholds, Screen, InvestmentGoal } from '../types';
+import { Broker, Account, Stock, InitialPortfolio, PortfolioCategory, Trade, AccountTransaction, BankAccount, Theme, TradeType, TransactionType, MonthlyAccountValue, HistoricalGain, AlertThresholds, Screen, InvestmentGoal, FeeSettings } from '../types';
 import { PORTFOLIO_CATEGORIES, DATA_VERSION } from '../constants';
 import { exportAllData } from '../services/exportService';
 import * as XLSX from 'xlsx';
@@ -13,7 +13,8 @@ import { collection, writeBatch, doc, setDoc } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { 
   ChevronUpIcon, ChevronDownIcon, BuildingOffice2Icon, IdentificationIcon, BuildingLibraryIcon,
-  ChartBarIcon, ChartPieIcon, CircleStackIcon, LockClosedIcon, Cog8ToothIcon, BellAlertIcon, FlagIcon
+  ChartBarIcon, ChartPieIcon, CircleStackIcon, LockClosedIcon, Cog8ToothIcon, BellAlertIcon, FlagIcon,
+  CurrencyWonIcon
 } from '../components/Icons';
 
 const findValidXlsxLibrary = (mod: any): any | null => {
@@ -97,6 +98,8 @@ interface IndexScreenProps {
   investmentGoals: InvestmentGoal[];
   setInvestmentGoals: React.Dispatch<React.SetStateAction<InvestmentGoal[]>>;
   user: User | null;
+  feeSettings: FeeSettings;
+  setFeeSettings: React.Dispatch<React.SetStateAction<FeeSettings>>;
 }
 
 interface SettingsSectionProps {
@@ -155,6 +158,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   homeScreenPreference, setHomeScreenPreference,
   investmentGoals, setInvestmentGoals,
   user,
+  feeSettings,
+  setFeeSettings,
 }) => {
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState('');
@@ -167,7 +172,17 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   // Account State
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [accountForm, setAccountForm] = useState({ name: '', brokerId: (brokers || [])[0]?.id || '' });
+  const [accountForm, setAccountForm] = useState<{
+    name: string;
+    brokerId: string;
+    accountType: '일반' | '연금저축' | 'IRP' | 'ISA' | '퇴직DC';
+    isTaxFree: boolean;
+  }>({
+    name: '',
+    brokerId: (brokers || [])[0]?.id || '',
+    accountType: '일반',
+    isTaxFree: false,
+  });
 
   // Bank Account State
   const [isBankAccountModalOpen, setIsBankAccountModalOpen] = useState(false);
@@ -316,10 +331,20 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   const openAccountModal = (account: Account | null) => {
     if (account) {
       setEditingAccount(account);
-      setAccountForm({ name: account.name, brokerId: account.brokerId });
+      setAccountForm({
+        name: account.name,
+        brokerId: account.brokerId,
+        accountType: account.accountType || '일반',
+        isTaxFree: account.isTaxFree ?? false
+      });
     } else {
       setEditingAccount(null);
-      setAccountForm({ name: '', brokerId: (brokers || [])[0]?.id || '' });
+      setAccountForm({
+        name: '',
+        brokerId: (brokers || [])[0]?.id || '',
+        accountType: '일반',
+        isTaxFree: false
+      });
     }
     setIsAccountModalOpen(true);
   };
@@ -330,8 +355,19 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   };
 
   const handleAccountFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setAccountForm(prev => ({ ...prev, [name]: value }));
+    const { name, value, type } = e.target;
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setAccountForm(prev => ({ ...prev, [name]: checked }));
+    } else {
+      setAccountForm(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleAccountTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value as any;
+    const isTaxFree = ['연금저축', 'IRP', 'ISA', '퇴직DC'].includes(val);
+    setAccountForm(prev => ({ ...prev, accountType: val, isTaxFree }));
   };
 
   const handleSaveAccount = () => {
@@ -1247,6 +1283,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
     { id: 'accounts', title: '증권계좌 관리', icon: <IdentificationIcon className="w-6 h-6 text-green-500" /> },
     { id: 'bankAccounts', title: '은행 계좌 관리', icon: <BuildingLibraryIcon className="w-6 h-6 text-amber-500" /> },
     { id: 'stocks', title: '주식 종목 관리', icon: <ChartBarIcon className="w-6 h-6 text-purple-500" /> },
+    { id: 'fees', title: '수수료 및 제비용(세금) 설정', icon: <CurrencyWonIcon className="w-6 h-6 text-emerald-500 font-bold" /> },
   ];
 
   const portfolioSections = [
@@ -1302,8 +1339,21 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                               <ul className="mt-4 space-y-2">
                                 {(accounts || []).length === 0 ? <p className="text-center text-sm text-light-secondary dark:text-dark-secondary">등록된 계좌가 없습니다.</p> :
                                   (accounts || []).map(a => (
-                                    <li key={a.id} className="flex justify-between items-center p-2 bg-gray-100 dark:bg-slate-900/50 rounded">
-                                      <span>{a.name} <span className="text-sm text-light-secondary dark:text-dark-secondary">({brokerMap.get(a.brokerId) || '알 수 없는 증권사'})</span></span>
+                                    <li key={a.id} className="flex justify-between items-center p-2 bg-gray-100 dark:bg-slate-900/50 rounded animate-fade-in">
+                                      <span className="flex flex-wrap items-center gap-2">
+                                        <span className="font-semibold text-light-text dark:text-dark-text">{a.name}</span>
+                                        <span className="text-xs text-light-secondary dark:text-dark-secondary">({brokerMap.get(a.brokerId) || '알 수 없는 증권사'})</span>
+                                        {a.accountType && (
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 rounded uppercase">
+                                            {a.accountType}
+                                          </span>
+                                        )}
+                                        {a.isTaxFree && (
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 rounded uppercase">
+                                            비용면제
+                                          </span>
+                                        )}
+                                      </span>
                                       <div className="flex gap-2">
                                         <Button onClick={() => openAccountModal(a)} variant="secondary" className="px-2 py-1 text-xs">수정</Button>
                                         <Button onClick={() => handleDeleteAccount(a.id)} className="px-2 py-1 text-xs bg-loss text-white hover:bg-red-700 focus:ring-red-500">삭제</Button>
@@ -1313,6 +1363,106 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                 }
                               </ul>
                             </>
+                        )}
+                        {section.id === 'fees' && (
+                            <div className="space-y-6">
+                              <p className="text-sm text-light-secondary dark:text-dark-secondary">
+                                각 거래(매수/매도) 및 배당금 수령 시 적용될 기본 수수료와 세금을 변경하고 저장할 수 있습니다.<br />
+                                등록된 증권계좌 중 <b>연금저축, IRP, ISA, 퇴직DC</b> 계좌 또는 별도로 <b>'비용면제'</b> 활성화를 선택한 계좌는 아래 설정에 관계없이 수수료와 거래세, 배당금이 <b>0원(전액 면제)</b>으로 자동 정산됩니다.
+                              </p>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Card title="매수 거래 비용">
+                                  <div className="space-y-4 pt-2">
+                                    <Input
+                                      label="기본 매수 수수료율 (%)"
+                                      id="buyFeeRateInput"
+                                      name="buyFeeRate"
+                                      type="number"
+                                      step="0.0001"
+                                      value={feeSettings.buyFeeRate}
+                                      onChange={(e) => setFeeSettings(prev => ({ ...prev, buyFeeRate: Number(e.target.value) }))}
+                                      required
+                                    />
+                                    <p className="text-xs text-light-secondary dark:text-dark-secondary leading-normal">
+                                      거래 금액(수량 &times; 단가)의 수수료율 만큼 매수 가액에 포함됩니다. (미래에셋 기본: 0.0036%)
+                                    </p>
+                                  </div>
+                                </Card>
+
+                                <Card title="매도 거래 비용">
+                                  <div className="space-y-4 pt-2">
+                                    <Input
+                                      label="기본 매도 수수료율 (%)"
+                                      id="sellFeeRateInput"
+                                      name="sellFeeRate"
+                                      type="number"
+                                      step="0.0001"
+                                      value={feeSettings.sellFeeRate}
+                                      onChange={(e) => setFeeSettings(prev => ({ ...prev, sellFeeRate: Number(e.target.value) }))}
+                                      required
+                                    />
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input
+                                        label="일반 주식 거래세율 (%)"
+                                        id="stockTaxRateInput"
+                                        name="stockTaxRate"
+                                        type="number"
+                                        step="0.01"
+                                        value={feeSettings.stockTaxRate}
+                                        onChange={(e) => setFeeSettings(prev => ({ ...prev, stockTaxRate: Number(e.target.value) }))}
+                                        required
+                                      />
+                                      <Input
+                                        label="ETF 거래세율 (%)"
+                                        id="etfTaxRateInput"
+                                        name="etfTaxRate"
+                                        type="number"
+                                        step="0.01"
+                                        value={feeSettings.etfTaxRate}
+                                        onChange={(e) => setFeeSettings(prev => ({ ...prev, etfTaxRate: Number(e.target.value) }))}
+                                        required
+                                      />
+                                    </div>
+                                    <p className="text-xs text-light-secondary dark:text-dark-secondary leading-normal">
+                                      매도 정산 시 수수료와 거래세율이 차감되어 정산됩니다. (일반주식 기본: 0.2%, ETF 기본: 0%)
+                                    </p>
+                                  </div>
+                                </Card>
+
+                                <div className="col-span-1 md:col-span-2">
+                                  <Card title="배당소득세 비용">
+                                    <div className="space-y-4 pt-2">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <Input
+                                          label="일반 주식 배당소득세율 (%)"
+                                          id="stockDividendTaxRateInput"
+                                          name="stockDividendTaxRate"
+                                          type="number"
+                                          step="0.1"
+                                          value={feeSettings.stockDividendTaxRate}
+                                          onChange={(e) => setFeeSettings(prev => ({ ...prev, stockDividendTaxRate: Number(e.target.value) }))}
+                                          required
+                                        />
+                                        <Input
+                                          label="ETF 배당소득세율 (분배세율) (%)"
+                                          id="etfDividendTaxRateInput"
+                                          name="etfDividendTaxRate"
+                                          type="number"
+                                          step="0.1"
+                                          value={feeSettings.etfDividendTaxRate}
+                                          onChange={(e) => setFeeSettings(prev => ({ ...prev, etfDividendTaxRate: Number(e.target.value) }))}
+                                          required
+                                        />
+                                      </div>
+                                      <p className="text-xs text-light-secondary dark:text-dark-secondary leading-normal">
+                                        배당금(분배금) 수령 내역에서 해당 배당세만큼 자동 원천징수되어 순수 입금액이 정산됩니다. (일반주식 기본: 0%, ETF 기본: 15.4%)
+                                      </p>
+                                    </div>
+                                  </Card>
+                                </div>
+                              </div>
+                            </div>
                         )}
                         {section.id === 'bankAccounts' && (
                             <>
@@ -1700,6 +1850,26 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           <Select label="증권사" id="brokerIdModal" name="brokerId" value={accountForm.brokerId} onChange={handleAccountFormChange}>
             {(brokers || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
+          <Select label="계좌 유형" id="accountTypeModal" name="accountType" value={accountForm.accountType || '일반'} onChange={handleAccountTypeChange}>
+            <option value="일반">일반 위탁 / CMA</option>
+            <option value="연금저축">연금저축</option>
+            <option value="IRP">개인형 IRP</option>
+            <option value="ISA">ISA (중개형)</option>
+            <option value="퇴직DC">퇴직연금 DC</option>
+          </Select>
+          <div className="flex items-center pt-2">
+            <input
+              id="isTaxFreeModal"
+              name="isTaxFree"
+              type="checkbox"
+              checked={accountForm.isTaxFree || false}
+              onChange={handleAccountFormChange}
+              className="w-4 h-4 text-light-primary dark:text-dark-primary border-gray-300 dark:border-slate-600 rounded focus:ring-light-primary dark:focus:ring-dark-primary"
+            />
+            <label htmlFor="isTaxFreeModal" className="ml-2 text-sm text-light-text dark:text-dark-text font-medium select-none cursor-pointer">
+              수수료 및 제비용(세금) 면제 계좌로 설정
+            </label>
+          </div>
           <div className="flex justify-end pt-4">
             <Button onClick={handleSaveAccount}>저장</Button>
           </div>

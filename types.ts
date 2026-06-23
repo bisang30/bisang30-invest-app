@@ -54,6 +54,8 @@ export interface Account {
   id: string;
   name: string;
   brokerId: string;
+  accountType?: '일반' | '연금저축' | 'IRP' | 'ISA' | '퇴직DC';
+  isTaxFree?: boolean;
 }
 
 export interface BankAccount {
@@ -143,4 +145,13 @@ export interface AlertThresholds {
   global: Thresholds;
   categories: { [key in PortfolioCategory]?: Partial<Thresholds> };
   stocks: { [stockId: string]: Partial<Thresholds> };
+}
+
+export interface FeeSettings {
+  buyFeeRate: number;            // 매수 수수료 % (예: 0.0036)
+  sellFeeRate: number;           // 매도 수수료 % (예: 0.0036)
+  stockTaxRate: number;          // 일반주식 거래세 % (예: 0.2)
+  etfTaxRate: number;            // ETF 거래세 % (기본값: 0)
+  stockDividendTaxRate: number;  // 일반주식 배당소득세 % (기본값: 0)
+  etfDividendTaxRate: number;    // ETF 배당소득세 % (예: 15.4)
 }
