@@ -24,8 +24,9 @@ interface TradeWithPL extends Trade {
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(value);
 
-const formatNumber = (value: number | string): string => {
-  if (value === '' || value === null || value === undefined || Number(value) === 0) return '';
+const formatNumber = (value: number | string | undefined | null, allowZero = false): string => {
+  if (value === '' || value === null || value === undefined) return '';
+  if (!allowZero && Number(value) === 0) return '';
   const num = Number(String(value).replace(/,/g, ''));
   if (isNaN(num)) return '';
   return num.toLocaleString('ko-KR');
@@ -223,8 +224,12 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
 
   const handleFeeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    const numValue = parseFloat(value.replace(/,/g, ''));
     setIsFeeAndTaxManual(true);
+    if (value === '') {
+      setFormState(prev => ({ ...prev, customFeeAndTax: '' as any }));
+      return;
+    }
+    const numValue = parseFloat(value.replace(/,/g, ''));
     setFormState(prev => ({ ...prev, customFeeAndTax: isNaN(numValue) ? 0 : numValue }));
   };
   
@@ -303,7 +308,9 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
       ...formState,
       quantity,
       price,
-      customFeeAndTax: isFeeAndTaxManual ? formState.customFeeAndTax : undefined,
+      customFeeAndTax: isFeeAndTaxManual
+        ? (formState.customFeeAndTax === ('' as any) ? 0 : Number(formState.customFeeAndTax))
+        : undefined,
     };
 
     if (editingTrade) {
@@ -475,7 +482,7 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
                 name="customFeeAndTax"
                 type="text"
                 inputMode="numeric"
-                value={formatNumber(formState.customFeeAndTax ?? 0)}
+                value={formState.customFeeAndTax === ('' as any) ? '' : formatNumber(formState.customFeeAndTax ?? 0, true)}
                 onChange={handleFeeInputChange}
                 required
                 className={isFeeAndTaxManual ? "border-amber-400 focus:ring-amber-500/50 dark:border-amber-500" : ""}
