@@ -27,6 +27,7 @@ const screenTitles: Record<Screen, string> = {
   [Screen.Menu]: '전체 메뉴',
   [Screen.HoldingsStatus]: '포트폴리오 가꾸기',
   [Screen.GoalInvesting]: '목표 달성',
+  [Screen.AssetAllocation]: '통합 비중분석',
 };
 
 const Header: React.FC<HeaderProps> = ({ theme, toggleTheme, currentScreen, onOpenExitModal, user, onLogin, onRefresh, isRefreshing }) => {

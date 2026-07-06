@@ -43,6 +43,14 @@ const MenuScreen: React.FC<MenuScreenProps> = ({ setCurrentScreen }) => {
       bgColor: 'bg-violet-100 dark:bg-violet-900/50'
     },
     {
+      screen: Screen.AssetAllocation,
+      label: '통합 비중분석',
+      description: '안전/비안전 자산구분, 국가별 구분, 세부 자산별 비중을 분석합니다.',
+      icon: ChartPieIcon,
+      color: 'text-indigo-500',
+      bgColor: 'bg-indigo-100 dark:bg-indigo-900/50'
+    },
+    {
       screen: Screen.GoalInvesting,
       label: '목표 달성',
       description: '설정한 투자 목표의 달성 현황을 추적합니다.',

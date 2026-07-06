@@ -14,6 +14,7 @@ export const NAV_ITEMS = [
   { screen: Screen.Index, label: '설정' },
   { screen: Screen.Menu, label: '메뉴' },
   { screen: Screen.HoldingsStatus, label: '포트폴리오 가꾸기' },
+  { screen: Screen.AssetAllocation, label: '통합 비중분석' },
 ];
 
 export const PORTFOLIO_CATEGORIES = Object.values(PortfolioCategory);

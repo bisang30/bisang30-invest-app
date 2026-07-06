@@ -18,6 +18,7 @@ export const Screen = {
   Menu: 'MENU',
   GoalInvesting: 'GOAL_INVESTING',
   HoldingsStatus: 'HOLDINGS_STATUS',
+  AssetAllocation: 'ASSET_ALLOCATION',
 } as const;
 export type Screen = typeof Screen[keyof typeof Screen];
 
@@ -72,6 +73,9 @@ export interface Stock {
   isPortfolio: boolean;
   isEtf?: boolean;
   expenseRatio?: number;
+  country?: '한국' | '미국' | '기타';
+  subCategory?: '금' | '채권' | '현금' | '머니마켓액티브' | '주식';
+  etfType?: '배당' | '지수추종' | '섹터추종' | '없음';
 }
 
 export interface Trade {

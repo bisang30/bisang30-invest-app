@@ -10,7 +10,14 @@
         "backgroundFetchInterval": { "type": "number" },
         "showSummary": { "type": "boolean" },
         "theme": { "type": "string", "enum": ["light", "dark"] },
-        "homeScreenPreference": { "type": "string", "enum": ["HOME", "HOLDINGS_STATUS"] }
+        "homeScreenPreference": { "type": "string", "enum": ["HOME", "HOLDINGS_STATUS"] },
+        "retirementGoal": { "type": "object", "description": "Retirement planning goals" },
+        "password": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "lastLogin": { "type": "string" },
+        "feeSettings": { "type": "object", "description": "Custom transaction fee and tax settings" }
       }
     },
     "Broker": {

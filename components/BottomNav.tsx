@@ -26,6 +26,7 @@ const iconMap: Record<Screen, React.ComponentType<{ className: string }>> = {
   [Screen.Rebalancing]: Squares2X2Icon,
   // FIX: Add missing GOAL_INVESTING to iconMap
   [Screen.GoalInvesting]: Squares2X2Icon,
+  [Screen.AssetAllocation]: ChartPieIcon,
 };
 
 const activeColorMap: Record<Screen, string> = {
@@ -43,6 +44,7 @@ const activeColorMap: Record<Screen, string> = {
   [Screen.Rebalancing]: 'text-slate-600 dark:text-slate-400',
   // FIX: Add missing GOAL_INVESTING to activeColorMap
   [Screen.GoalInvesting]: 'text-lime-600 dark:text-lime-400',
+  [Screen.AssetAllocation]: 'text-indigo-600 dark:text-indigo-400',
 };
 
 const activeBgColorMap: Record<Screen, string> = {
@@ -60,6 +62,7 @@ const activeBgColorMap: Record<Screen, string> = {
   [Screen.Rebalancing]: 'bg-slate-100 dark:bg-slate-700',
   // FIX: Add missing GOAL_INVESTING to activeBgColorMap
   [Screen.GoalInvesting]: 'bg-lime-100 dark:bg-lime-900/50',
+  [Screen.AssetAllocation]: 'bg-indigo-100 dark:bg-indigo-900/50',
 };
 
 

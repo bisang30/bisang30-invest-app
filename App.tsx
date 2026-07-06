@@ -11,6 +11,7 @@ import IndexScreen from './screens/IndexScreen';
 import RebalancingScreen from './screens/RebalancingScreen';
 import MenuScreen from './screens/MenuScreen';
 import HoldingsStatusScreen from './screens/HoldingsStatusScreen';
+import AssetAllocationScreen from './screens/AssetAllocationScreen';
 import RetirementGoalScreen from './screens/RetirementGoalScreen';
 import PasswordScreen from './screens/PasswordScreen';
 import BottomNav from './components/BottomNav';
@@ -33,7 +34,7 @@ const DEFAULT_BROKERS: Broker[] = [
 ];
 
 const DEFAULT_ACCOUNTS: Account[] = [
-  { id: 'acc-mirae-1', name: '일반종합', brokerId: defaultBrokerId, accountType: '일반', isTaxFree: false },
+  { id: 'acc-mirae-1', name: '개별계좌', brokerId: defaultBrokerId, accountType: '일반', isTaxFree: false },
   { id: 'acc-mirae-2', name: 'CMA', brokerId: defaultBrokerId, accountType: '일반', isTaxFree: false },
   { id: 'acc-mirae-3', name: 'ISA(중개형)', brokerId: defaultBrokerId, accountType: 'ISA', isTaxFree: true },
   { id: 'acc-mirae-4', name: '연금저축1', brokerId: defaultBrokerId, accountType: '연금저축', isTaxFree: true },
@@ -1082,6 +1083,17 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           />;
       case Screen.Menu:
         return <MenuScreen setCurrentScreen={navigateToScreen} />;
+      case Screen.AssetAllocation:
+        return <AssetAllocationScreen
+          accounts={accounts}
+          brokers={brokers}
+          trades={mainPortfolioTrades}
+          transactions={mainPortfolioTransactions}
+          stocks={stocks}
+          setStocks={setStocks}
+          stockPrices={stockPrices}
+          historicalGains={historicalGains}
+        />;
       case Screen.Rebalancing:
         return <RebalancingScreen
           stockId={rebalancingStockId!}
