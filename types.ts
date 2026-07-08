@@ -159,4 +159,5 @@ export interface FeeSettings {
   etfTaxRate: number;            // ETF 거래세 % (기본값: 0)
   stockDividendTaxRate: number;  // 일반주식 배당소득세 % (기본값: 0)
   etfDividendTaxRate: number;    // ETF 배당소득세 % (예: 15.4)
+  sameDayTradeOrder?: 'buyFirst' | 'sellFirst' | 'inputOrder'; // 동일 일자 매매 처리 순서
 }

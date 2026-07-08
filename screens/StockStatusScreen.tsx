@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Card from '../components/ui/Card';
-import { Trade, Stock, TradeType, InitialPortfolio, PortfolioCategory } from '../types';
+import { Trade, Stock, TradeType, InitialPortfolio, PortfolioCategory, FeeSettings } from '../types';
 import { PORTFOLIO_CATEGORIES } from '../constants';
 import { ChevronDownIcon, ChevronUpIcon, BanknotesIcon, CircleStackIcon, ChartBarIcon, CurrencyWonIcon, ChartLineIcon } from '../components/Icons';
 
@@ -12,6 +12,7 @@ interface StockStatusScreenProps {
   stocks: Stock[];
   stockPrices: { [key: string]: number };
   initialPortfolio: InitialPortfolio;
+  feeSettings?: FeeSettings;
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(value);
@@ -25,16 +26,31 @@ const categoryVisuals: Record<PortfolioCategory, { icon: React.ComponentType<{ c
 };
 
 
-const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, stockPrices, initialPortfolio }) => {
+const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, stockPrices, initialPortfolio, feeSettings }) => {
   const stockMap = useMemo(() => new Map((stocks || []).map(s => [s.id, s])), [stocks]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const holdingsByCategory = useMemo(() => {
     const holdingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
 
-    // Critical fix: Sort trades by date to ensure correct calculation of quantity and average cost.
+    // Critical fix: Sort trades by date and type/order to ensure correct calculation of quantity and average cost.
     [...(trades || [])]
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .sort((a, b) => {
+        const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        if (order === 'inputOrder') {
+          return (a.id || '').localeCompare(b.id || '');
+        }
+        if (a.tradeType !== b.tradeType) {
+          if (order === 'buyFirst') {
+            return a.tradeType === TradeType.Buy ? -1 : 1;
+          } else {
+            return a.tradeType === TradeType.Sell ? -1 : 1;
+          }
+        }
+        return (a.id || '').localeCompare(b.id || '');
+      })
       .forEach(trade => {
         if (!trade || !trade.stockId) return;
 

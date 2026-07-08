@@ -49,7 +49,8 @@ const DEFAULT_FEE_SETTINGS: FeeSettings = {
   stockTaxRate: 0.2,
   etfTaxRate: 0,
   stockDividendTaxRate: 0,
-  etfDividendTaxRate: 15.4
+  etfDividendTaxRate: 15.4,
+  sameDayTradeOrder: 'sellFirst'
 };
 
 const DEFAULT_STOCKS: Stock[] = [
@@ -995,6 +996,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           stocks={stocks} 
           stockPrices={stockPrices} 
           initialPortfolio={initialPortfolio} 
+          feeSettings={feeSettings}
         />;
       case Screen.AccountStatus:
         return <AccountStatusScreen 
@@ -1008,6 +1010,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           stocks={stocks}
           stockPrices={stockPrices}
           historicalGains={historicalGains}
+          feeSettings={feeSettings}
         />;
       case Screen.HoldingsStatus:
         return <HoldingsStatusScreen
@@ -1093,6 +1096,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           setStocks={setStocks}
           stockPrices={stockPrices}
           historicalGains={historicalGains}
+          feeSettings={feeSettings}
         />;
       case Screen.Rebalancing:
         return <RebalancingScreen

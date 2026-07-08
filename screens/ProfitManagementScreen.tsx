@@ -156,7 +156,22 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
 
   const combinedGainsData = useMemo(() => {
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
-    const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const sortedTrades = [...(trades || [])].sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      if (order === 'inputOrder') {
+        return (a.id || '').localeCompare(b.id || '');
+      }
+      if (a.tradeType !== b.tradeType) {
+        if (order === 'buyFirst') {
+          return a.tradeType === TradeType.Buy ? -1 : 1;
+        } else {
+          return a.tradeType === TradeType.Sell ? -1 : 1;
+        }
+      }
+      return (a.id || '').localeCompare(b.id || '');
+    });
     const sellTradesWithPL: any[] = [];
     const accountsMapObj = new Map((accounts || []).map(a => [a.id, a]));
 
@@ -383,8 +398,23 @@ const DividendsView: React.FC<DividendsViewProps> = ({ transactions, setTransact
     const stockTotalCosts = useMemo(() => {
         const holdingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
 
+        const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
         [...(trades || [])]
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .sort((a, b) => {
+            const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            if (dateDiff !== 0) return dateDiff;
+            if (order === 'inputOrder') {
+                return (a.id || '').localeCompare(b.id || '');
+            }
+            if (a.tradeType !== b.tradeType) {
+                if (order === 'buyFirst') {
+                    return a.tradeType === TradeType.Buy ? -1 : 1;
+                } else {
+                    return a.tradeType === TradeType.Sell ? -1 : 1;
+                }
+            }
+            return (a.id || '').localeCompare(b.id || '');
+        })
         .forEach(trade => {
             if (!trade || !trade.stockId) return;
             if (!holdingsMap[trade.stockId]) {
@@ -613,7 +643,22 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
     const accountMap = new Map((accounts || []).map(a => [a.id, a]));
 
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
-    const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const sortedTrades = [...(trades || [])].sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      if (order === 'inputOrder') {
+        return (a.id || '').localeCompare(b.id || '');
+      }
+      if (a.tradeType !== b.tradeType) {
+        if (order === 'buyFirst') {
+          return a.tradeType === TradeType.Buy ? -1 : 1;
+        } else {
+          return a.tradeType === TradeType.Sell ? -1 : 1;
+        }
+      }
+      return (a.id || '').localeCompare(b.id || '');
+    });
     let totalPnlFromTrades = 0;
 
     sortedTrades.forEach(trade => {
@@ -664,7 +709,22 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
     const accountMap = new Map((accounts || []).map(a => [a.id, a]));
 
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
-    const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const sortedTrades = [...(trades || [])].sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      if (order === 'inputOrder') {
+        return (a.id || '').localeCompare(b.id || '');
+      }
+      if (a.tradeType !== b.tradeType) {
+        if (order === 'buyFirst') {
+          return a.tradeType === TradeType.Buy ? -1 : 1;
+        } else {
+          return a.tradeType === TradeType.Sell ? -1 : 1;
+        }
+      }
+      return (a.id || '').localeCompare(b.id || '');
+    });
     let totalFeesAndTaxes = 0;
 
     sortedTrades.forEach(trade => {

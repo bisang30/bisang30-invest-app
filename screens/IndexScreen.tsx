@@ -1461,6 +1461,27 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                     </div>
                                   </Card>
                                 </div>
+
+                                <div className="col-span-1 md:col-span-2">
+                                  <Card title="동일 일자 매매 처리 방식">
+                                    <div className="space-y-4 pt-2">
+                                      <Select
+                                        label="하루 동안 여러 번 매수/매도했을 때의 정산 순서"
+                                        id="sameDayTradeOrderInput"
+                                        name="sameDayTradeOrder"
+                                        value={feeSettings.sameDayTradeOrder || 'sellFirst'}
+                                        onChange={(e) => setFeeSettings(prev => ({ ...prev, sameDayTradeOrder: e.target.value as any }))}
+                                      >
+                                        <option value="sellFirst">선매도 후매수 (당일 매수분 평단가 제외 - 추천)</option>
+                                        <option value="buyFirst">선매수 후매도 (정통 선입선출법)</option>
+                                        <option value="inputOrder">입력 순서 (거래 등록 순서대로 평단가 롤링)</option>
+                                      </Select>
+                                      <p className="text-xs text-light-secondary dark:text-dark-secondary leading-normal">
+                                        <b>선매도 후매수 (당일 매수분 평단가 제외)</b> 방식을 선택하면 하루 동안 일어난 매도가 당일 일어난 매수보다 먼저 처리된 것으로 계산합니다. 당일 낮아진 잔고 혹은 전일 보유량 범위 내에서 매도가 먼저 종결되므로, 당일 매수한 금액이 당일 매도분의 평단가 산정에 실시간으로 영향을 주어 평단가가 갑자기 왜곡되는 현상을 방지할 수 있습니다. (국내 주식 세무 정산 시 권장 표준)
+                                      </p>
+                                    </div>
+                                  </Card>
+                                </div>
                               </div>
                             </div>
                         )}

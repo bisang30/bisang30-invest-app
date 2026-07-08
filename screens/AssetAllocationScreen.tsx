@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Account, Broker, Trade, AccountTransaction, TransactionType, Stock, TradeType, HistoricalGain, PortfolioCategory } from '../types';
+import { Account, Broker, Trade, AccountTransaction, TransactionType, Stock, TradeType, HistoricalGain, PortfolioCategory, FeeSettings } from '../types';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 
@@ -12,6 +12,7 @@ interface AssetAllocationScreenProps {
   setStocks: React.Dispatch<React.SetStateAction<Stock[]>>;
   stockPrices: { [key: string]: number };
   historicalGains: HistoricalGain[];
+  feeSettings?: FeeSettings;
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(Math.round(value));
@@ -140,6 +141,7 @@ const AssetAllocationScreen: React.FC<AssetAllocationScreenProps> = ({
   setStocks,
   stockPrices,
   historicalGains,
+  feeSettings,
 }) => {
   const stockMap = useMemo(() => new Map((stocks || []).map(s => [s.id, s])), [stocks]);
   const brokerMap = useMemo(() => new Map((brokers || []).map(b => [b.id, b.name])), [brokers]);
@@ -150,10 +152,25 @@ const AssetAllocationScreen: React.FC<AssetAllocationScreenProps> = ({
 
   // 1. Calculate holdings and cash per account (similar logic to AccountStatusScreen)
   const accountDetails = useMemo(() => {
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
     return (accounts || []).map(account => {
       const accountTrades = (trades || [])
         .filter(t => t.accountId === account.id)
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        .sort((a, b) => {
+          const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          if (order === 'inputOrder') {
+            return (a.id || '').localeCompare(b.id || '');
+          }
+          if (a.tradeType !== b.tradeType) {
+            if (order === 'buyFirst') {
+              return a.tradeType === TradeType.Buy ? -1 : 1;
+            } else {
+              return a.tradeType === TradeType.Sell ? -1 : 1;
+            }
+          }
+          return (a.id || '').localeCompare(b.id || '');
+        });
 
       // Evaluate Stock quantities
       const accountHoldingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};

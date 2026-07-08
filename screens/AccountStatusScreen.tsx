@@ -5,7 +5,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
-import { Account, Broker, Trade, AccountTransaction, TransactionType, Screen, BankAccount, Stock, TradeType, HistoricalGain } from '../types';
+import { Account, Broker, Trade, AccountTransaction, TransactionType, Screen, BankAccount, Stock, TradeType, HistoricalGain, FeeSettings } from '../types';
 import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, WalletIcon, IdentificationIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
 
 
@@ -20,6 +20,7 @@ interface AccountStatusScreenProps {
   stocks: Stock[];
   stockPrices: { [key: string]: number };
   historicalGains: HistoricalGain[];
+  feeSettings?: FeeSettings;
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(value);
@@ -32,7 +33,7 @@ const formatNumber = (value: number | string): string => {
 };
 
 const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({ 
-  accounts, brokers, trades, transactions, setTransactions, setCurrentScreen, bankAccounts, stocks, stockPrices, historicalGains
+  accounts, brokers, trades, transactions, setTransactions, setCurrentScreen, bankAccounts, stocks, stockPrices, historicalGains, feeSettings
 }) => {
   const brokerMap = useMemo(() => new Map((brokers || []).map(b => [b.id, b.name])), [brokers]);
   const stockMap = useMemo(() => new Map((stocks || []).map(s => [s.id, s])), [stocks]);
@@ -55,10 +56,25 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
 
 
   const accountDetails = useMemo(() => {
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
     return (accounts || []).map(account => {
       const accountTrades = (trades || [])
         .filter(t => t.accountId === account.id)
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        .sort((a, b) => {
+          const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          if (order === 'inputOrder') {
+            return (a.id || '').localeCompare(b.id || '');
+          }
+          if (a.tradeType !== b.tradeType) {
+            if (order === 'buyFirst') {
+              return a.tradeType === TradeType.Buy ? -1 : 1;
+            } else {
+              return a.tradeType === TradeType.Sell ? -1 : 1;
+            }
+          }
+          return (a.id || '').localeCompare(b.id || '');
+        });
       
       const accountHoldingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
       accountTrades.forEach(trade => {

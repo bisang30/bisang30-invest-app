@@ -108,7 +108,22 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
   
   const tradesWithPL = useMemo((): TradeWithPL[] => {
     const holdings: { [stockId: string]: { quantity: number; totalCost: number } } = {};
-    const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const sortedTrades = [...(trades || [])].sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      if (order === 'inputOrder') {
+        return (a.id || '').localeCompare(b.id || '');
+      }
+      if (a.tradeType !== b.tradeType) {
+        if (order === 'buyFirst') {
+          return a.tradeType === TradeType.Buy ? -1 : 1;
+        } else {
+          return a.tradeType === TradeType.Sell ? -1 : 1;
+        }
+      }
+      return (a.id || '').localeCompare(b.id || '');
+    });
 
     return sortedTrades.map(trade => {
         if (!trade.stockId) return trade;
