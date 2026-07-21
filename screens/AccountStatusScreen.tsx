@@ -7,6 +7,8 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Screen, BankAccount, Stock, TradeType, HistoricalGain, FeeSettings } from '../types';
 import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, WalletIcon, IdentificationIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
+import { calculateTradeFeeAndTax } from '../services/feeService';
+import DepositBreakdownModal from '../components/DepositBreakdownModal';
 
 
 interface AccountStatusScreenProps {
@@ -49,6 +51,8 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
   });
   
   const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null);
+  const [isBreakdownModalOpen, setIsBreakdownModalOpen] = useState(false);
+  const [selectedAccountForBreakdown, setSelectedAccountForBreakdown] = useState<Account | null>(null);
 
   const handleToggleExpand = (accountId: string) => {
     setExpandedAccountId(prevId => (prevId === accountId ? null : accountId));
@@ -126,17 +130,41 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
         }).filter((item): item is NonNullable<typeof item> => item !== null)
           .sort((a, b) => b.currentValue - a.currentValue);
 
-      const totalBuyCost = accountTrades.filter(t => t.tradeType === 'BUY').reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
-      const totalSellProceeds = accountTrades.filter(t => t.tradeType === 'SELL').reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
+      const totalBuyCost = accountTrades
+        .filter(t => t.tradeType === 'BUY')
+        .reduce((sum, t) => {
+          const stock = stockMap.get(t.stockId);
+          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
+          return sum + feeCalc.total;
+        }, 0);
+
+      const totalSellProceeds = accountTrades
+        .filter(t => t.tradeType === 'SELL')
+        .reduce((sum, t) => {
+          const stock = stockMap.get(t.stockId);
+          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
+          return sum + feeCalc.total;
+        }, 0);
 
       let netDeposits = 0;
       let netCashFromTransactions = 0;
       (transactions || []).forEach(t => {
         const amount = Number(t.amount) || 0;
-        if ((t.accountId === account.id && (t.transactionType === TransactionType.Deposit || t.transactionType === TransactionType.Dividend)) || (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal)) {
+        if (
+          (t.accountId === account.id &&
+            (t.transactionType === TransactionType.Deposit ||
+              t.transactionType === TransactionType.Dividend ||
+              t.transactionType === TransactionType.Interest)) ||
+          (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal)
+        ) {
           netCashFromTransactions += amount;
-          if (t.transactionType !== TransactionType.Dividend) netDeposits += amount;
-        } else if ((t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) || (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit)) {
+          if (t.transactionType !== TransactionType.Dividend && t.transactionType !== TransactionType.Interest) {
+            netDeposits += amount;
+          }
+        } else if (
+          (t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) ||
+          (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit)
+        ) {
           netCashFromTransactions -= amount;
           netDeposits -= amount;
         }
@@ -300,8 +328,22 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
                               <span className="text-light-secondary dark:text-dark-secondary">주식 평가액</span>
                               <span className="font-medium text-light-text dark:text-dark-text">{formatCurrency(account.stockValue)}</span>
                           </div>
-                          <div className="flex justify-between">
-                              <span className="text-light-secondary dark:text-dark-secondary">예수금</span>
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-light-secondary dark:text-dark-secondary">예수금</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedAccountForBreakdown(account as any);
+                                    setIsBreakdownModalOpen(true);
+                                  }}
+                                  className="text-[11px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0 inline-flex items-center"
+                                  title="예수금 산출 및 오류 진단 내역 조회"
+                                >
+                                  (상세 내역)
+                                </button>
+                              </div>
                               <span className="font-medium text-light-text dark:text-dark-text">{formatCurrency(account.cashBalance)}</span>
                           </div>
                            <div className="flex justify-between mt-3 pt-3 border-t border-dashed border-gray-200/80 dark:border-slate-700/50">
@@ -375,6 +417,29 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
           </div>
         </form>
       </Modal>
+
+      {selectedAccountForBreakdown && (
+        <DepositBreakdownModal
+          isOpen={isBreakdownModalOpen}
+          onClose={() => {
+            setIsBreakdownModalOpen(false);
+            setSelectedAccountForBreakdown(null);
+          }}
+          account={selectedAccountForBreakdown}
+          trades={trades}
+          transactions={transactions}
+          stocks={stocks}
+          historicalGains={historicalGains}
+          feeSettings={feeSettings || {
+            buyFeeRate: 0.0036,
+            sellFeeRate: 0.0036,
+            stockTaxRate: 0.2,
+            etfTaxRate: 0,
+            stockDividendTaxRate: 0,
+            etfDividendTaxRate: 15.4,
+          }}
+        />
+      )}
     </div>
   );
 };

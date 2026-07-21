@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { calculateTradeFeeAndTax } from '../services/feeService';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Stock, TradeType, HistoricalGain, PortfolioCategory, FeeSettings } from '../types';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -221,8 +222,21 @@ const AssetAllocationScreen: React.FC<AssetAllocationScreenProps> = ({
         .filter((item): item is NonNullable<typeof item> => item !== null);
 
       // Cash Balance Calculation
-      const totalBuyCost = accountTrades.filter(t => t.tradeType === 'BUY').reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
-      const totalSellProceeds = accountTrades.filter(t => t.tradeType === 'SELL').reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
+      const totalBuyCost = accountTrades
+        .filter(t => t.tradeType === 'BUY')
+        .reduce((sum, t) => {
+          const stock = stockMap.get(t.stockId);
+          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
+          return sum + feeCalc.total;
+        }, 0);
+
+      const totalSellProceeds = accountTrades
+        .filter(t => t.tradeType === 'SELL')
+        .reduce((sum, t) => {
+          const stock = stockMap.get(t.stockId);
+          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
+          return sum + feeCalc.total;
+        }, 0);
 
       let netCashFromTransactions = 0;
       (transactions || []).forEach(t => {
@@ -245,7 +259,7 @@ const AssetAllocationScreen: React.FC<AssetAllocationScreenProps> = ({
         totalValue: cashBalance + stockAssets.reduce((sum, s) => sum + s.currentValue, 0),
       };
     });
-  }, [accounts, trades, transactions, stocks, stockPrices, brokerMap, stockMap, historicalGains]);
+  }, [accounts, trades, transactions, stocks, stockPrices, brokerMap, stockMap, historicalGains, feeSettings]);
 
   // Filter accounts based on Selected Group or Selected Individual Account
   const filteredAccounts = useMemo(() => {
