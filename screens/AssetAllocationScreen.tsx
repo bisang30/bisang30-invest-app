@@ -61,7 +61,7 @@ export function getAssetClassification(stock: Stock) {
     ) {
       subCategory = '금';
     } else if (
-      cat === PortfolioCategory.Bonds || 
+      cat === '채권' || 
       name.includes('채권') || 
       name.includes('Treasury') || 
       name.includes('Bond') || 

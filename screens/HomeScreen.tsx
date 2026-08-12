@@ -4,6 +4,7 @@ import { PortfolioCategory, AlertThresholds, MonthlyAccountValue, AccountTransac
 import Select from '../components/ui/Select';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, ComposedChart, Line, Bar, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, ChevronDownIcon, ChevronUpIcon, CircleStackIcon, BanknotesIcon } from '../components/Icons';
+import { getEffectiveThresholds } from './IndexScreen';
 
 interface AlertedStock {
   id: string;
@@ -90,9 +91,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ financialSummary, alertThreshol
     financialSummary.allStocks.forEach((stock: any) => {
       if (stock.targetWeight > 0) {
         const disparityDeviation = Math.abs(stock.disparityRatio);
-        const stockThresholds = alertThresholds.stocks[stock.id] || {};
-        const cautionThreshold = stockThresholds.caution ?? alertThresholds.global.caution;
-        const warningThreshold = stockThresholds.warning ?? alertThresholds.global.warning;
+        const { caution: cautionThreshold, warning: warningThreshold } = getEffectiveThresholds(stock, alertThresholds);
 
         let level: 'warning' | 'caution' | null = null;
         if (disparityDeviation > warningThreshold) {

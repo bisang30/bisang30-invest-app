@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Trade, Stock, TradeType, InitialPortfolio, AlertThresholds } from '../types';
 import Card from '../components/ui/Card';
 import { ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
+import { getEffectiveThresholds } from './IndexScreen';
 
 interface HoldingsStatusScreenProps {
   trades: Trade[];
@@ -148,9 +149,7 @@ const HoldingsStatusScreen: React.FC<HoldingsStatusScreenProps> = ({ trades, sto
       if (targetWeight > 0) {
         const disparityRatio = ((currentWeight - targetWeight) / targetWeight) * 100;
         const disparityDeviation = Math.abs(disparityRatio);
-        const stockThresh = alertThresholds.stocks[holding.id] || {};
-        const warningThreshold = stockThresh.warning ?? alertThresholds.global.warning;
-        const cautionThreshold = stockThresh.caution ?? alertThresholds.global.caution;
+        const { caution: cautionThreshold, warning: warningThreshold } = getEffectiveThresholds(holding, alertThresholds);
         
         if (disparityDeviation > warningThreshold) {
           status = 'warning';

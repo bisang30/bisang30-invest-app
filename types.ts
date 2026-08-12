@@ -37,11 +37,9 @@ export const TransactionType = {
 export type TransactionType = typeof TransactionType[keyof typeof TransactionType];
 
 export const PortfolioCategory = {
-  Cash: '현금성자산',
-  Alternatives: '대체(금)',
-  Bonds: '채권',
-  Dividend: '배당',
   Stock: '주식형',
+  Cash: '현금성',
+  Alternatives: '대체(금)',
 } as const;
 export type PortfolioCategory = typeof PortfolioCategory[keyof typeof PortfolioCategory];
 
@@ -69,13 +67,14 @@ export interface Stock {
   id: string;
   ticker: string;
   name: string;
-  category: PortfolioCategory;
+  category: PortfolioCategory | string;
   isPortfolio: boolean;
   isEtf?: boolean;
   expenseRatio?: number;
   country?: '한국' | '미국' | '기타';
   subCategory?: '금' | '채권' | '현금' | '머니마켓액티브' | '주식';
   etfType?: '배당' | '지수추종' | '섹터추종' | '없음';
+  stockStrategy?: '지수추종형' | '개별/섹터투자' | '지수추종' | string;
 }
 
 export interface Trade {
@@ -148,7 +147,8 @@ export interface Thresholds {
 
 export interface AlertThresholds {
   global: Thresholds;
-  categories: { [key in PortfolioCategory]?: Partial<Thresholds> };
+  categories?: { [key: string]: Partial<Thresholds> };
+  groups?: { [key: string]: Partial<Thresholds> };
   stocks: { [stockId: string]: Partial<Thresholds> };
 }
 

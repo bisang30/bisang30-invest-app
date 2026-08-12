@@ -14,7 +14,7 @@ import { User } from 'firebase/auth';
 import { 
   ChevronUpIcon, ChevronDownIcon, BuildingOffice2Icon, IdentificationIcon, BuildingLibraryIcon,
   ChartBarIcon, ChartPieIcon, CircleStackIcon, LockClosedIcon, Cog8ToothIcon, BellAlertIcon, FlagIcon,
-  CurrencyWonIcon
+  CurrencyWonIcon, BanknotesIcon, ChartLineIcon, TargetIcon, LayersIcon
 } from '../components/Icons';
 
 const findValidXlsxLibrary = (mod: any): any | null => {
@@ -58,6 +58,142 @@ const findValidXlsxLibrary = (mod: any): any | null => {
 interface StockFormState extends Omit<Stock, 'id' | 'expenseRatio'> {
   expenseRatio: string;
 }
+
+export function normalizeCategory(category: string | undefined): PortfolioCategory {
+  if (!category) return PortfolioCategory.Stock;
+  const trimmed = String(category).trim();
+  if (trimmed === '현금성' || trimmed === '현금형' || trimmed === '현금성자산' || trimmed === '현금') {
+    return PortfolioCategory.Cash;
+  }
+  if (trimmed === '대체(금)' || trimmed === '대체' || trimmed === '금') {
+    return PortfolioCategory.Alternatives;
+  }
+  return PortfolioCategory.Stock;
+}
+
+export function isIndexStrategyStock(s: { stockStrategy?: string; etfType?: string; name?: string }): boolean {
+  const strat = s.stockStrategy || '';
+  const etfType = s.etfType || '';
+  const name = s.name || '';
+  return (
+    strat === '지수추종' ||
+    strat === '지수추종형' ||
+    etfType === '지수추종' ||
+    name.includes('S&P500') ||
+    name.includes('나스닥') ||
+    name.includes('200') ||
+    name.includes('지수') ||
+    name.includes('TR')
+  );
+}
+
+export function getEffectiveThresholds(
+  stock: { id: string; category?: string; stockStrategy?: string; etfType?: string; name?: string },
+  alertThresholds: AlertThresholds
+): { caution: number; warning: number } {
+  if (!alertThresholds) return { caution: 20, warning: 30 };
+  const globalCaution = alertThresholds.global?.caution ?? 20;
+  const globalWarning = alertThresholds.global?.warning ?? 30;
+
+  // 1. Stock override
+  const stockThresh = alertThresholds.stocks?.[stock.id];
+  
+  // 2. Group override
+  const normCat = normalizeCategory(stock.category);
+  let groupKey: string | null = null;
+  if (normCat === PortfolioCategory.Stock) {
+    groupKey = isIndexStrategyStock(stock) ? 'stock_index' : 'stock_individual';
+  }
+  const groupThresh = groupKey ? alertThresholds.groups?.[groupKey] : undefined;
+
+  // 3. Category override
+  const catThresh = alertThresholds.categories?.[normCat];
+
+  // Resolve caution
+  let caution = stockThresh?.caution;
+  if (caution === undefined || caution === null || isNaN(caution)) {
+    caution = groupThresh?.caution;
+  }
+  if (caution === undefined || caution === null || isNaN(caution)) {
+    caution = catThresh?.caution;
+  }
+  if (caution === undefined || caution === null || isNaN(caution)) {
+    caution = globalCaution;
+  }
+
+  // Resolve warning
+  let warning = stockThresh?.warning;
+  if (warning === undefined || warning === null || isNaN(warning)) {
+    warning = groupThresh?.warning;
+  }
+  if (warning === undefined || warning === null || isNaN(warning)) {
+    warning = catThresh?.warning;
+  }
+  if (warning === undefined || warning === null || isNaN(warning)) {
+    warning = globalWarning;
+  }
+
+  return { caution, warning };
+}
+
+export function getPortfolioSubGroup(stock: Stock): { key: string; title: string; iconEmoji: string } {
+  let cat = stock.category || '주식형';
+  if (cat === '현금성자산' || cat === '현금성' || cat === '현금') {
+    return { key: 'cash', title: '현금성', iconEmoji: '💵' };
+  }
+  if (cat === '대체(금)' || cat === '대체' || cat === '금') {
+    return { key: 'alt_gold', title: '대체(금)', iconEmoji: '🪙' };
+  }
+
+  let country = stock.country;
+  if (!country) {
+    const ticker = stock.ticker || '';
+    if (/^\d{6}$/.test(ticker)) country = '한국';
+    else country = '미국';
+  }
+
+  let strategy = stock.stockStrategy;
+  if (!strategy) {
+    const name = stock.name || '';
+    const etfType = stock.etfType || '';
+    if (
+      etfType === '지수추종' ||
+      name.includes('S&P500') ||
+      name.includes('나스닥') ||
+      name.includes('200') ||
+      name.includes('지수') ||
+      name.includes('TR')
+    ) {
+      strategy = country === '미국' ? '지수추종' : '지수추종형';
+    } else {
+      strategy = '개별/섹터투자';
+    }
+  }
+
+  if (country === '한국') {
+    if (strategy === '지수추종형' || strategy === '지수추종') {
+      return { key: 'kr_index', title: '주식형 - 한국 (지수추종형)', iconEmoji: '🇰🇷' };
+    } else {
+      return { key: 'kr_individual', title: '주식형 - 한국 (개별/섹터투자)', iconEmoji: '🇰🇷' };
+    }
+  } else if (country === '미국') {
+    if (strategy === '지수추종' || strategy === '지수추종형') {
+      return { key: 'us_index', title: '주식형 - 미국 (지수추종)', iconEmoji: '🇺🇸' };
+    } else {
+      return { key: 'us_individual', title: '주식형 - 미국 (개별/섹터투자)', iconEmoji: '🇺🇸' };
+    }
+  } else {
+    return { key: 'other', title: '주식형 - 기타', iconEmoji: '🌐' };
+  }
+}
+
+export const TARGET_PORTFOLIO_GROUPS = [
+  { key: 'kr_index', title: '주식형 - 한국 (지수추종형)', iconEmoji: '🇰🇷' },
+  { key: 'kr_individual', title: '주식형 - 한국 (개별/섹터투자)', iconEmoji: '🇰🇷' },
+  { key: 'us_index', title: '주식형 - 미국 (지수추종)', iconEmoji: '🇺🇸' },
+  { key: 'cash', title: '현금성', iconEmoji: '💵' },
+  { key: 'alt_gold', title: '대체(금)', iconEmoji: '🪙' },
+];
 
 const formatNumber = (value: number | string): string => {
   if (value === '' || value === null || value === undefined || Number(value) === 0) return '';
@@ -470,10 +606,18 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   const openStockModal = (stock: Stock | null) => {
     if (stock) {
         setEditingStock(stock);
-        setStockForm({ name: stock.name, ticker: stock.ticker, category: stock.category, isPortfolio: stock.isPortfolio || false, isEtf: stock.isEtf || false, expenseRatio: stock.expenseRatio ? String(stock.expenseRatio) : '' });
+        const category = normalizeCategory(stock.category);
+        const country = stock.country || (/^\d{6}$/.test(stock.ticker) ? '한국' : '미국');
+        let stockStrategy = stock.stockStrategy;
+        if (!stockStrategy) {
+          if (category === '현금성') stockStrategy = '현금';
+          else if (category === '대체(금)') stockStrategy = '금';
+          else stockStrategy = (country === '미국' ? '지수추종' : '지수추종형');
+        }
+        setStockForm({ name: stock.name, ticker: stock.ticker, category, country, stockStrategy, isPortfolio: stock.isPortfolio || false, isEtf: stock.isEtf || false, expenseRatio: stock.expenseRatio ? String(stock.expenseRatio) : '' });
     } else {
         setEditingStock(null);
-        setStockForm({ ticker: '', name: '', category: PortfolioCategory.Stock, isPortfolio: false, isEtf: false, expenseRatio: '' });
+        setStockForm({ ticker: '', name: '', category: PortfolioCategory.Stock, country: '한국', stockStrategy: '지수추종형', isPortfolio: false, isEtf: false, expenseRatio: '' });
     }
     setIsStockModalOpen(true);
   };
@@ -492,6 +636,23 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
       if (value === '' || /^\d*\.?\d*$/.test(value)) {
         setStockForm(prev => ({ ...prev, expenseRatio: value }));
       }
+    } else if (name === 'category') {
+      let defaultCountry: '한국' | '미국' | '기타' = '한국';
+      let defaultStrategy = '지수추종형';
+      if (value === '현금성') defaultStrategy = '현금';
+      else if (value === '대체(금)') defaultStrategy = '금';
+      setStockForm(prev => ({ ...prev, category: value, country: defaultCountry, stockStrategy: defaultStrategy }));
+    } else if (name === 'country') {
+      const countryVal = value as '한국' | '미국' | '기타';
+      setStockForm(prev => {
+        let newStrat = prev.stockStrategy;
+        if (countryVal === '미국') {
+          newStrat = '지수추종';
+        } else if (countryVal === '한국') {
+          newStrat = '지수추종형';
+        }
+        return { ...prev, country: countryVal, stockStrategy: newStrat };
+      });
     } else {
         setStockForm(prev => ({ ...prev, [name]: name === 'ticker' ? value.toUpperCase() : value }));
     }
@@ -753,27 +914,30 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
     setTimeout(() => setToastMessage(''), 3000);
   };
   
-  const handleThresholdChange = (level: 'global' | 'categories' | 'stocks', type: 'caution' | 'warning', value: string, id?: string) => {
+  const handleThresholdChange = (level: 'global' | 'categories' | 'groups' | 'stocks', type: 'caution' | 'warning', value: string, id?: string) => {
       const numValue = value === '' ? undefined : parseFloat(value);
       
       setEditingThresholds(prev => {
-        const newThresholds = JSON.parse(JSON.stringify(prev)); // Deep copy
+        const newThresholds: AlertThresholds = JSON.parse(JSON.stringify(prev)); // Deep copy
+        if (!newThresholds.categories) newThresholds.categories = {};
+        if (!newThresholds.groups) newThresholds.groups = {};
+        if (!newThresholds.stocks) newThresholds.stocks = {};
         
         if (level === 'global') {
-          newThresholds.global[type] = numValue ?? (type === 'caution' ? 3 : 5);
+          newThresholds.global[type] = numValue ?? (type === 'caution' ? 20 : 30);
         } else if (id) {
-          if (!newThresholds[level]) newThresholds[level] = {};
+          if (!(newThresholds as any)[level]) (newThresholds as any)[level] = {};
           
-          if (numValue === undefined) {
-            if (newThresholds[level][id]) {
-              delete newThresholds[level][id][type];
-              if (Object.keys(newThresholds[level][id]).length === 0) {
-                delete newThresholds[level][id];
+          if (numValue === undefined || isNaN(numValue)) {
+            if ((newThresholds as any)[level][id]) {
+              delete (newThresholds as any)[level][id][type];
+              if (Object.keys((newThresholds as any)[level][id]).length === 0) {
+                delete (newThresholds as any)[level][id];
               }
             }
           } else {
-            if (!newThresholds[level][id]) newThresholds[level][id] = {};
-            newThresholds[level][id][type] = numValue;
+            if (!(newThresholds as any)[level][id]) (newThresholds as any)[level][id] = {};
+            (newThresholds as any)[level][id][type] = numValue;
           }
         }
         return newThresholds;
@@ -1237,20 +1401,43 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   };
 
   const stocksByCategory = useMemo(() => {
-    const grouped: { [key in PortfolioCategory]?: Stock[] } = {};
+    const grouped: { [key: string]: Stock[] } = {};
     (stocks || []).forEach(stock => {
-        if (!grouped[stock.category]) {
-            grouped[stock.category] = [];
-        }
-        grouped[stock.category]!.push(stock);
+      const normCat = normalizeCategory(stock.category);
+      if (!grouped[normCat]) {
+        grouped[normCat] = [];
+      }
+      grouped[normCat].push(stock);
     });
-    return PORTFOLIO_CATEGORIES.map(category => ({
-        category,
-        stocks: grouped[category]?.sort((a,b) => a.name.localeCompare(b.name)) || []
-    })).filter(g => g.stocks.length > 0);
+
+    const categoryOrder = [PortfolioCategory.Stock, PortfolioCategory.Cash, PortfolioCategory.Alternatives];
+    const result: { category: string; stocks: Stock[] }[] = [];
+
+    categoryOrder.forEach(cat => {
+      if (grouped[cat] && grouped[cat].length > 0) {
+        result.push({
+          category: cat,
+          stocks: grouped[cat].sort((a, b) => a.name.localeCompare(b.name))
+        });
+      }
+    });
+
+    // Catch any remaining unexpected categories if any
+    Object.keys(grouped).forEach(cat => {
+      if (!categoryOrder.includes(cat as any) && grouped[cat].length > 0) {
+        result.push({
+          category: cat,
+          stocks: grouped[cat].sort((a, b) => a.name.localeCompare(b.name))
+        });
+      }
+    });
+
+    return result;
   }, [stocks]);
 
-  const [openStockCategories, setOpenStockCategories] = useState<Set<string>>(new Set());
+  const [openStockCategories, setOpenStockCategories] = useState<Set<string>>(
+    new Set([PortfolioCategory.Stock, PortfolioCategory.Cash, PortfolioCategory.Alternatives, '현금형', '현금성자산', '현금', '대체', '금', 'cash', 'stock', 'alt_gold'])
+  );
 
   const toggleStockCategory = (category: string) => {
     setOpenStockCategories(prev => {
@@ -1523,10 +1710,23 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                     {openStockCategories.has(category) && (
                                       <ul className="mt-2 space-y-2 pl-4 border-l-2 border-gray-200 dark:border-slate-700">
                                         {categoryStocks.map(s => (
-                                          <li key={s.id} className="flex justify-between items-center p-2 bg-gray-100 dark:bg-slate-900/50 rounded">
+                                          <li key={s.id} className="flex justify-between items-center p-3 bg-gray-100 dark:bg-slate-900/50 rounded-lg">
                                             <div>
-                                              <p>{s.name} ({s.ticker})</p>
-                                              <div className="flex items-center gap-2 mt-1">
+                                              <p className="font-semibold text-light-text dark:text-dark-text">{s.name} ({s.ticker})</p>
+                                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                                <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded-full font-medium">
+                                                  {s.category}
+                                                </span>
+                                                {s.country && (
+                                                  <span className="text-xs bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 px-2 py-0.5 rounded-full font-medium">
+                                                    {s.country}
+                                                  </span>
+                                                )}
+                                                {s.stockStrategy && (
+                                                  <span className="text-xs bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 px-2 py-0.5 rounded-full font-medium">
+                                                    {s.stockStrategy}
+                                                  </span>
+                                                )}
                                                 {s.isPortfolio && <span className="text-xs font-semibold text-white bg-light-primary dark:bg-dark-primary px-2 py-0.5 rounded-full">포트폴리오</span>}
                                                 {s.isEtf && <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 bg-gray-300 dark:bg-gray-600 px-2 py-0.5 rounded-full">ETF</span>}
                                               </div>
@@ -1588,60 +1788,359 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                         )}
                         {section.id === 'portfolio' && (
                            <>
-                              {PORTFOLIO_CATEGORIES.map((category: string) => {
-                                const categoryStocks = portfolioStocks.filter(s => s.category === category);
-                                if (categoryStocks.length === 0) return null;
-                                
-                                const categoryTotal = categoryStocks.reduce((sum, stock) => {
-                                  const valueStr = isPortfolioEditing ? editingPortfolio[stock.id] : String((initialPortfolio || {})[stock.id] || '');
-                                  return sum + (parseFloat(valueStr) || 0);
-                                }, 0);
-                                
-                                const isCategoryOpen = openPortfolioCategories.has(category);
+                              {(() => {
+                                const cashStocks = portfolioStocks.filter(s => normalizeCategory(s.category) === PortfolioCategory.Cash);
+                                const altStocks = portfolioStocks.filter(s => normalizeCategory(s.category) === PortfolioCategory.Alternatives);
+                                const stockStocks = portfolioStocks.filter(s => normalizeCategory(s.category) === PortfolioCategory.Stock);
+                                const otherCategoryStocks = portfolioStocks.filter(s => {
+                                  const c = normalizeCategory(s.category);
+                                  return c !== PortfolioCategory.Cash && c !== PortfolioCategory.Alternatives && c !== PortfolioCategory.Stock;
+                                });
+
+                                const getStockWeightVal = (stockId: string): number => {
+                                  const val = isPortfolioEditing
+                                    ? editingPortfolio[stockId]
+                                    : String((initialPortfolio || {})[stockId] || '');
+                                  return parseFloat(val) || 0;
+                                };
+
+                                const calcGroupTotal = (stks: Stock[]): number => {
+                                  return stks.reduce((sum, s) => sum + getStockWeightVal(s.id), 0);
+                                };
+
+                                const isIndexStrategy = (s: Stock): boolean => {
+                                  const strat = s.stockStrategy || '';
+                                  const etfType = s.etfType || '';
+                                  const name = s.name || '';
+                                  return (
+                                    strat === '지수추종' ||
+                                    strat === '지수추종형' ||
+                                    etfType === '지수추종' ||
+                                    name.includes('S&P500') ||
+                                    name.includes('나스닥') ||
+                                    name.includes('200') ||
+                                    name.includes('지수') ||
+                                    name.includes('TR')
+                                  );
+                                };
+
+                                const getCountryGroup = (s: Stock): '한국' | '미국' | '기타' => {
+                                  if (s.country === '미국') return '미국';
+                                  if (s.country === '한국' || /^\d{6}$/.test(s.ticker)) return '한국';
+                                  return '기타';
+                                };
+
+                                const indexStocks = stockStocks.filter(isIndexStrategy);
+                                const individualStocks = stockStocks.filter(s => !isIndexStrategy(s));
+
+                                const level1Cards = [
+                                  {
+                                    id: 'cash',
+                                    title: '현금성 (현금형)',
+                                    iconNode: (
+                                      <div className="w-8 h-8 rounded-lg bg-blue-500/10 dark:bg-blue-400/20 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-500/20 shadow-xs">
+                                        <BanknotesIcon className="w-5 h-5" />
+                                      </div>
+                                    ),
+                                    type: 'direct' as const,
+                                    stocks: cashStocks,
+                                    total: calcGroupTotal(cashStocks)
+                                  },
+                                  {
+                                    id: 'stock',
+                                    title: '주식형',
+                                    iconNode: (
+                                      <div className="w-8 h-8 rounded-lg bg-purple-500/10 dark:bg-purple-400/20 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-500/20 shadow-xs">
+                                        <ChartLineIcon className="w-5 h-5" />
+                                      </div>
+                                    ),
+                                    type: 'hierarchical' as const,
+                                    total: calcGroupTotal(stockStocks),
+                                    stocksCount: stockStocks.length,
+                                    level2Groups: [
+                                      {
+                                        id: 'stock_index',
+                                        title: '지수추종형',
+                                        iconNode: (
+                                          <div className="w-7 h-7 rounded-md bg-emerald-500/10 dark:bg-emerald-400/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20 shadow-xs">
+                                            <TargetIcon className="w-4 h-4" />
+                                          </div>
+                                        ),
+                                        total: calcGroupTotal(indexStocks),
+                                        level3Groups: [
+                                          {
+                                            id: 'stock_index_kr',
+                                            title: '한국',
+                                            iconNode: (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50 text-xs font-semibold">
+                                                <span className="text-xs">🇰🇷</span> 한국
+                                              </span>
+                                            ),
+                                            stocks: indexStocks.filter(s => getCountryGroup(s) === '한국'),
+                                          },
+                                          {
+                                            id: 'stock_index_us',
+                                            title: '미국',
+                                            iconNode: (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50 text-xs font-semibold">
+                                                <span className="text-xs">🇺🇸</span> 미국
+                                              </span>
+                                            ),
+                                            stocks: indexStocks.filter(s => getCountryGroup(s) === '미국'),
+                                          },
+                                          {
+                                            id: 'stock_index_other',
+                                            title: '기타',
+                                            iconNode: (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 text-xs font-semibold">
+                                                <span className="text-xs">🌐</span> 기타
+                                              </span>
+                                            ),
+                                            stocks: indexStocks.filter(s => getCountryGroup(s) === '기타'),
+                                          }
+                                        ].filter(l3 => l3.stocks.length > 0)
+                                      },
+                                      {
+                                        id: 'stock_individual',
+                                        title: '개별/섹터투자',
+                                        iconNode: (
+                                          <div className="w-7 h-7 rounded-md bg-indigo-500/10 dark:bg-indigo-400/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-500/20 shadow-xs">
+                                            <LayersIcon className="w-4 h-4" />
+                                          </div>
+                                        ),
+                                        total: calcGroupTotal(individualStocks),
+                                        level3Groups: [
+                                          {
+                                            id: 'stock_ind_kr',
+                                            title: '한국',
+                                            iconNode: (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50 text-xs font-semibold">
+                                                <span className="text-xs">🇰🇷</span> 한국
+                                              </span>
+                                            ),
+                                            stocks: individualStocks.filter(s => getCountryGroup(s) === '한국'),
+                                          },
+                                          {
+                                            id: 'stock_ind_us',
+                                            title: '미국',
+                                            iconNode: (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50 text-xs font-semibold">
+                                                <span className="text-xs">🇺🇸</span> 미국
+                                              </span>
+                                            ),
+                                            stocks: individualStocks.filter(s => getCountryGroup(s) === '미국'),
+                                          },
+                                          {
+                                            id: 'stock_ind_other',
+                                            title: '기타',
+                                            iconNode: (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 text-xs font-semibold">
+                                                <span className="text-xs">🌐</span> 기타
+                                              </span>
+                                            ),
+                                            stocks: individualStocks.filter(s => getCountryGroup(s) === '기타'),
+                                          }
+                                        ].filter(l3 => l3.stocks.length > 0)
+                                      }
+                                    ].filter(l2 => l2.level3Groups.length > 0)
+                                  },
+                                  {
+                                    id: 'alt_gold',
+                                    title: '대체(금)',
+                                    iconNode: (
+                                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 dark:bg-amber-400/20 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-xs">
+                                        <CircleStackIcon className="w-5 h-5" />
+                                      </div>
+                                    ),
+                                    type: 'direct' as const,
+                                    stocks: altStocks,
+                                    total: calcGroupTotal(altStocks)
+                                  }
+                                ];
 
                                 return (
-                                  <div key={category} className="mb-4 last:mb-0">
-                                    <div 
-                                      onClick={() => togglePortfolioCategory(category)}
-                                      className="cursor-pointer flex justify-between items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-800/50 transition-colors"
-                                      aria-expanded={isCategoryOpen}
-                                      aria-controls={`portfolio-category-${category}`}
-                                    >
-                                      <h3 className="text-lg font-semibold text-light-text dark:text-dark-text">
-                                        {category}
-                                      </h3>
-                                      <div className="flex items-center gap-4">
-                                        <span className={`text-base font-bold ${isPortfolioEditing ? 'text-light-primary dark:text-dark-primary' : 'text-light-text dark:text-dark-text'}`}>{categoryTotal.toFixed(2)}%</span>
-                                        {isCategoryOpen 
-                                          ? <ChevronUpIcon className="w-5 h-5 text-light-secondary dark:text-dark-secondary" /> 
-                                          : <ChevronDownIcon className="w-5 h-5 text-light-secondary dark:text-dark-secondary" />}
-                                      </div>
-                                    </div>
-                                    {isCategoryOpen && (
-                                      <div id={`portfolio-category-${category}`} className="mt-3 space-y-4 pl-4 pr-2 pb-2 border-l-2 border-gray-200 dark:border-slate-700">
-                                        {categoryStocks.map(stock => (
-                                          <Input 
-                                            key={stock.id}
-                                            label={`${stock.name} (${stock.ticker})`}
-                                            id={`portfolio-${stock.id}`}
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={
-                                              isPortfolioEditing
-                                                ? editingPortfolio[stock.id] ?? ''
-                                                : ((initialPortfolio || {})[stock.id] ? String((initialPortfolio || {})[stock.id]) : '')
-                                            }
-                                            onChange={(e) => handlePortfolioInputChange(stock.id, e.target.value)}
-                                            disabled={!isPortfolioEditing}
-                                            placeholder="비중(%)"
-                                          />
-                                        ))}
+                                  <div className="space-y-4">
+                                    {level1Cards.map(l1 => {
+                                      if (l1.type === 'direct' && l1.stocks.length === 0) return null;
+                                      if (l1.type === 'hierarchical' && l1.stocksCount === 0) return null;
+
+                                      const isL1Open = !openPortfolioCategories.has(l1.id);
+
+                                      return (
+                                        <div key={l1.id} className="border border-gray-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 shadow-sm overflow-hidden transition-all">
+                                          {/* Level 1 Header */}
+                                          <div
+                                            onClick={() => togglePortfolioCategory(l1.id)}
+                                            className="cursor-pointer flex justify-between items-center p-3.5 bg-gray-50 dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+                                          >
+                                            <div className="flex items-center gap-2.5">
+                                              {l1.iconNode}
+                                              <span className="text-base sm:text-lg font-bold text-light-text dark:text-dark-text">{l1.title}</span>
+                                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300 font-medium">
+                                                {l1.type === 'direct' ? l1.stocks.length : l1.stocksCount}개 종목
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                              <span className={`text-base font-bold ${isPortfolioEditing ? 'text-light-primary dark:text-dark-primary' : 'text-light-text dark:text-dark-text'}`}>
+                                                {l1.total.toFixed(2)}%
+                                              </span>
+                                              {isL1Open ? (
+                                                <ChevronUpIcon className="w-5 h-5 text-light-secondary dark:text-dark-secondary" />
+                                              ) : (
+                                                <ChevronDownIcon className="w-5 h-5 text-light-secondary dark:text-dark-secondary" />
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {/* Level 1 Content */}
+                                          {isL1Open && (
+                                            <div className="p-4 space-y-4 border-t border-gray-100 dark:border-slate-800/80">
+                                              {l1.type === 'direct' ? (
+                                                <div className="space-y-3">
+                                                  {l1.stocks.map(stock => (
+                                                    <Input
+                                                      key={stock.id}
+                                                      label={`${stock.name} (${stock.ticker})`}
+                                                      id={`portfolio-${stock.id}`}
+                                                      type="text"
+                                                      inputMode="decimal"
+                                                      value={
+                                                        isPortfolioEditing
+                                                          ? editingPortfolio[stock.id] ?? ''
+                                                          : ((initialPortfolio || {})[stock.id] ? String((initialPortfolio || {})[stock.id]) : '')
+                                                      }
+                                                      onChange={(e) => handlePortfolioInputChange(stock.id, e.target.value)}
+                                                      disabled={!isPortfolioEditing}
+                                                      placeholder="비중(%)"
+                                                    />
+                                                  ))}
+                                                </div>
+                                              ) : (
+                                                <div className="space-y-4">
+                                                  {l1.level2Groups.map(l2 => {
+                                                    const isL2Open = !openPortfolioCategories.has(l2.id);
+                                                    return (
+                                                      <div key={l2.id} className="border border-purple-100 dark:border-purple-900/40 rounded-lg bg-purple-50/30 dark:bg-purple-950/20 overflow-hidden">
+                                                        {/* Level 2 Header */}
+                                                        <div
+                                                          onClick={() => togglePortfolioCategory(l2.id)}
+                                                          className="cursor-pointer flex justify-between items-center p-3 bg-purple-100/50 dark:bg-purple-900/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors"
+                                                        >
+                                                          <div className="flex items-center gap-2">
+                                                            {l2.iconNode}
+                                                            <span className="text-sm sm:text-base font-semibold text-purple-950 dark:text-purple-200">{l2.title}</span>
+                                                          </div>
+                                                          <div className="flex items-center gap-3">
+                                                            <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                                                              {l2.total.toFixed(2)}%
+                                                            </span>
+                                                            {isL2Open ? (
+                                                              <ChevronUpIcon className="w-4 h-4 text-purple-700 dark:text-purple-300" />
+                                                            ) : (
+                                                              <ChevronDownIcon className="w-4 h-4 text-purple-700 dark:text-purple-300" />
+                                                            )}
+                                                          </div>
+                                                        </div>
+
+                                                        {/* Level 2 Content */}
+                                                        {isL2Open && (
+                                                          <div className="p-3 space-y-3">
+                                                            {l2.level3Groups.map(l3 => {
+                                                              const isL3Open = !openPortfolioCategories.has(l3.id);
+                                                              const l3Total = calcGroupTotal(l3.stocks);
+
+                                                              return (
+                                                                <div key={l3.id} className="border border-blue-100 dark:border-blue-900/40 rounded-md bg-white dark:bg-slate-900/80 p-3">
+                                                                  {/* Level 3 Header */}
+                                                                  <div
+                                                                    onClick={() => togglePortfolioCategory(l3.id)}
+                                                                    className="cursor-pointer flex justify-between items-center pb-2 mb-2 border-b border-gray-100 dark:border-slate-800"
+                                                                  >
+                                                                    <div className="flex items-center gap-2">
+                                                                      {l3.iconNode}
+                                                                      <span className="text-xs text-gray-500 dark:text-gray-400">({l3.stocks.length}개)</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                      <span className="text-xs sm:text-sm font-bold text-blue-600 dark:text-blue-400">
+                                                                        {l3Total.toFixed(2)}%
+                                                                      </span>
+                                                                      {isL3Open ? (
+                                                                        <ChevronUpIcon className="w-4 h-4 text-blue-500" />
+                                                                      ) : (
+                                                                        <ChevronDownIcon className="w-4 h-4 text-blue-500" />
+                                                                      )}
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Level 3 Content */}
+                                                                  {isL3Open && (
+                                                                    <div className="space-y-3 pt-1">
+                                                                      {l3.stocks.map(stock => (
+                                                                        <Input
+                                                                          key={stock.id}
+                                                                          label={`${stock.name} (${stock.ticker})`}
+                                                                          id={`portfolio-${stock.id}`}
+                                                                          type="text"
+                                                                          inputMode="decimal"
+                                                                          value={
+                                                                            isPortfolioEditing
+                                                                              ? editingPortfolio[stock.id] ?? ''
+                                                                              : ((initialPortfolio || {})[stock.id] ? String((initialPortfolio || {})[stock.id]) : '')
+                                                                          }
+                                                                          onChange={(e) => handlePortfolioInputChange(stock.id, e.target.value)}
+                                                                          disabled={!isPortfolioEditing}
+                                                                          placeholder="비중(%)"
+                                                                        />
+                                                                      ))}
+                                                                    </div>
+                                                                  )}
+                                                                </div>
+                                                              );
+                                                            })}
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+
+                                    {otherCategoryStocks.length > 0 && (
+                                      <div className="border border-gray-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-4">
+                                        <h3 className="text-base font-bold mb-3 flex items-center gap-2">
+                                          <span>🌐</span>
+                                          <span>기타 자산</span>
+                                        </h3>
+                                        <div className="space-y-3">
+                                          {otherCategoryStocks.map(stock => (
+                                            <Input
+                                              key={stock.id}
+                                              label={`${stock.name} (${stock.ticker})`}
+                                              id={`portfolio-${stock.id}`}
+                                              type="text"
+                                              inputMode="decimal"
+                                              value={
+                                                isPortfolioEditing
+                                                  ? editingPortfolio[stock.id] ?? ''
+                                                  : ((initialPortfolio || {})[stock.id] ? String((initialPortfolio || {})[stock.id]) : '')
+                                              }
+                                              onChange={(e) => handlePortfolioInputChange(stock.id, e.target.value)}
+                                              disabled={!isPortfolioEditing}
+                                              placeholder="비중(%)"
+                                            />
+                                          ))}
+                                        </div>
                                       </div>
                                     )}
                                   </div>
-                                )
-                              })}
-                              
+                                );
+                              })()}
+
                               {portfolioStocks.length === 0 ? (
                                 <p className="text-center text-sm text-light-secondary dark:text-dark-secondary py-4">포트폴리오에 포함된 종목이 없습니다. '주식 종목 관리'에서 종목을 추가하고 '포트폴리오 포함'을 체크해주세요.</p>
                               ) : (
@@ -1674,57 +2173,212 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                             </>
                         )}
                         {section.id === 'alertSettings' && (
-                             <div className="space-y-6">
-                              <div>
-                                <h3 className="text-md font-semibold mb-2">전체 기준 (이격률 편차 %)</h3>
-                                <p className="text-sm text-light-secondary dark:text-dark-secondary mb-2">
-                                    목표 비중 대비 현재 비중의 편차 비율(이격률)의 절대값이 설정된 값을 초과하면 알림이 발생합니다.<br/>
-                                    예: '경고' 기준이 20%라면, 이격률이 +20%를 초과하거나 -20% 미만일 때 경고 상태가 됩니다.
-                                </p>
-                                <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 dark:bg-slate-900/50 rounded-lg">
-                                  <Input label="주의 (Caution)" type="number" step="0.1"
-                                         value={editingThresholds.global.caution}
-                                         onChange={(e) => handleThresholdChange('global', 'caution', e.target.value)} />
-                                  <Input label="경고 (Warning)" type="number" step="0.1"
-                                         value={editingThresholds.global.warning}
-                                         onChange={(e) => handleThresholdChange('global', 'warning', e.target.value)} />
+                          <div className="space-y-6">
+                            {/* 1. Global Alert Threshold */}
+                            <div className="p-4 bg-gray-50/80 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-800 rounded-xl space-y-3">
+                              <div className="flex items-center gap-2">
+                                <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                  <BellAlertIcon className="w-5 h-5" />
                                 </div>
+                                <h3 className="text-md font-bold text-light-text dark:text-dark-text">전체 기본 기준 (이격률 편차 %)</h3>
                               </div>
-                              <div>
-                                <h3 className="text-md font-semibold mb-2">개별 종목 기준 (이격률 편차 %, 선택 사항)</h3>
-                                <p className="text-sm text-light-secondary dark:text-dark-secondary mb-2">
-                                    포트폴리오에 포함된 종목별로 알림 기준을 다르게 설정할 수 있습니다. 비워두면 전체 기준을 따릅니다.
-                                </p>
-                                <div className="space-y-3">
-                                  {portfolioStocksByCategory.length === 0 ? <p className="text-center text-sm text-light-secondary dark:text-dark-secondary p-4">포트폴리오에 포함된 종목이 없습니다.</p> :
-                                    portfolioStocksByCategory.map(({ category, stocks: categoryStocks }) => (
-                                      <details key={category} className="p-3 bg-gray-50 dark:bg-slate-900/50 rounded-lg" open>
-                                          <summary className="font-medium cursor-pointer">{category}</summary>
-                                          <div className="mt-4 space-y-4 pl-2 border-l-2 border-gray-200 dark:border-slate-700">
-                                              {categoryStocks.map(stock => (
-                                                  <div key={stock.id} className="ml-2">
-                                                      <h4 className="font-semibold text-sm mb-2">{stock.name}</h4>
-                                                      <div className="grid grid-cols-2 gap-4">
-                                                          <Input label="주의 (%)" type="number" step="0.1"
-                                                              placeholder={`전체: ${editingThresholds.global.caution}%`}
-                                                              value={editingThresholds.stocks[stock.id]?.caution ?? ''}
-                                                              onChange={(e) => handleThresholdChange('stocks', 'caution', e.target.value, stock.id)} />
-                                                          <Input label="경고 (%)" type="number" step="0.1"
-                                                              placeholder={`전체: ${editingThresholds.global.warning}%`}
-                                                              value={editingThresholds.stocks[stock.id]?.warning ?? ''}
-                                                              onChange={(e) => handleThresholdChange('stocks', 'warning', e.target.value, stock.id)} />
-                                                      </div>
-                                                  </div>
-                                              ))}
-                                          </div>
-                                      </details>
-                                  ))}
-                                </div>
-                              </div>
-                              <div className="flex justify-end mt-4">
-                                <Button onClick={handleSaveThresholds}>알림 기준 저장</Button>
+                              <p className="text-sm text-light-secondary dark:text-dark-secondary">
+                                목표 비중 대비 현재 비중의 편차 비율(이격률)의 절대값이 설정된 기준을 초과하면 알림이 발생합니다.<br />
+                                별도의 카테고리/그룹/종목 설정이 없는 경우 이 기본 기준이 적용됩니다. (예: '경고' 30% 설정 시 이격률 ±30% 초과 시 경고)
+                              </p>
+                              <div className="grid grid-cols-2 gap-4 pt-1">
+                                <Input
+                                  label="주의 (Caution %)"
+                                  type="number"
+                                  step="0.1"
+                                  value={editingThresholds.global.caution}
+                                  onChange={(e) => handleThresholdChange('global', 'caution', e.target.value)}
+                                />
+                                <Input
+                                  label="경고 (Warning %)"
+                                  type="number"
+                                  step="0.1"
+                                  value={editingThresholds.global.warning}
+                                  onChange={(e) => handleThresholdChange('global', 'warning', e.target.value)}
+                                />
                               </div>
                             </div>
+
+                            {/* 2. Category Level Alert Thresholds */}
+                            <div className="p-4 bg-gray-50/80 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-800 rounded-xl space-y-4">
+                              <div>
+                                <h3 className="text-md font-bold text-light-text dark:text-dark-text flex items-center gap-2">
+                                  <ChartPieIcon className="w-5 h-5 text-purple-500" />
+                                  <span>자산군 카테고리별 기준 (선택 사항)</span>
+                                </h3>
+                                <p className="text-sm text-light-secondary dark:text-dark-secondary mt-1">
+                                  대분류 자산군별로 다른 기준을 적용할 수 있습니다. 비워두면 전체 기본 기준이 적용됩니다.
+                                </p>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {[
+                                  { key: PortfolioCategory.Cash, title: '현금성 (현금형)', icon: <BanknotesIcon className="w-4 h-4 text-blue-500" /> },
+                                  { key: PortfolioCategory.Stock, title: '주식형', icon: <ChartLineIcon className="w-4 h-4 text-purple-500" /> },
+                                  { key: PortfolioCategory.Alternatives, title: '대체(금)', icon: <CircleStackIcon className="w-4 h-4 text-amber-500" /> },
+                                ].map(cat => {
+                                  const catCaution = editingThresholds.categories?.[cat.key]?.caution;
+                                  const catWarning = editingThresholds.categories?.[cat.key]?.warning;
+
+                                  return (
+                                    <div key={cat.key} className="p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/80 rounded-lg space-y-2">
+                                      <div className="flex items-center gap-1.5 font-bold text-sm text-light-text dark:text-dark-text pb-1 border-b border-gray-100 dark:border-slate-700">
+                                        {cat.icon}
+                                        <span>{cat.title}</span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <Input
+                                          label="주의 (%)"
+                                          type="number"
+                                          step="0.1"
+                                          placeholder={`전체: ${editingThresholds.global.caution}%`}
+                                          value={catCaution ?? ''}
+                                          onChange={(e) => handleThresholdChange('categories', 'caution', e.target.value, cat.key)}
+                                        />
+                                        <Input
+                                          label="경고 (%)"
+                                          type="number"
+                                          step="0.1"
+                                          placeholder={`전체: ${editingThresholds.global.warning}%`}
+                                          value={catWarning ?? ''}
+                                          onChange={(e) => handleThresholdChange('categories', 'warning', e.target.value, cat.key)}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* 3. Group Level Alert Thresholds */}
+                            <div className="p-4 bg-gray-50/80 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-800 rounded-xl space-y-4">
+                              <div>
+                                <h3 className="text-md font-bold text-light-text dark:text-dark-text flex items-center gap-2">
+                                  <LayersIcon className="w-5 h-5 text-emerald-500" />
+                                  <span>주식형 전략 그룹별 기준 (선택 사항)</span>
+                                </h3>
+                                <p className="text-sm text-light-secondary dark:text-dark-secondary mt-1">
+                                  주식형 내 지수추종 ETF vs 개별/섹터주 투자 그룹별로 기준을 차등화합니다. 비워두면 주식형 카테고리 또는 전체 기준을 따릅니다.
+                                </p>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {[
+                                  { key: 'stock_index', title: '지수추종형', icon: <TargetIcon className="w-4 h-4 text-emerald-500" /> },
+                                  { key: 'stock_individual', title: '개별 / 섹터투자', icon: <LayersIcon className="w-4 h-4 text-indigo-500" /> },
+                                ].map(grp => {
+                                  const grpCaution = editingThresholds.groups?.[grp.key]?.caution;
+                                  const grpWarning = editingThresholds.groups?.[grp.key]?.warning;
+
+                                  const stockCatCaution = editingThresholds.categories?.[PortfolioCategory.Stock]?.caution ?? editingThresholds.global.caution;
+                                  const stockCatWarning = editingThresholds.categories?.[PortfolioCategory.Stock]?.warning ?? editingThresholds.global.warning;
+
+                                  return (
+                                    <div key={grp.key} className="p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/80 rounded-lg space-y-2">
+                                      <div className="flex items-center gap-1.5 font-bold text-sm text-light-text dark:text-dark-text pb-1 border-b border-gray-100 dark:border-slate-700">
+                                        {grp.icon}
+                                        <span>{grp.title}</span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <Input
+                                          label="주의 (%)"
+                                          type="number"
+                                          step="0.1"
+                                          placeholder={`상위: ${stockCatCaution}%`}
+                                          value={grpCaution ?? ''}
+                                          onChange={(e) => handleThresholdChange('groups', 'caution', e.target.value, grp.key)}
+                                        />
+                                        <Input
+                                          label="경고 (%)"
+                                          type="number"
+                                          step="0.1"
+                                          placeholder={`상위: ${stockCatWarning}%`}
+                                          value={grpWarning ?? ''}
+                                          onChange={(e) => handleThresholdChange('groups', 'warning', e.target.value, grp.key)}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* 4. Individual Stock Overrides */}
+                            <div className="p-4 bg-gray-50/80 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-800 rounded-xl space-y-3">
+                              <div>
+                                <h3 className="text-md font-bold text-light-text dark:text-dark-text">개별 종목 기준 (특별 관리 종목 / 예외 설정)</h3>
+                                <p className="text-sm text-light-secondary dark:text-dark-secondary mt-1">
+                                  특정 종목에만 특별한 알림 기준을 지정할 때 사용합니다. 지정된 종목은 그룹, 카테고리, 전체 기준보다 최우선 적용됩니다.
+                                </p>
+                              </div>
+
+                              <details className="p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg">
+                                <summary className="font-semibold text-sm cursor-pointer text-light-text dark:text-dark-text hover:text-light-primary dark:hover:text-dark-primary transition-colors">
+                                  개별 종목 예외 설정 목록 ({portfolioStocksByCategory.reduce((acc, c) => acc + c.stocks.length, 0)}개 종목)
+                                </summary>
+                                <div className="mt-4 space-y-4 pt-2 border-t border-gray-100 dark:border-slate-700">
+                                  {portfolioStocksByCategory.length === 0 ? (
+                                    <p className="text-center text-sm text-light-secondary dark:text-dark-secondary p-2">
+                                      포트폴리오에 포함된 종목이 없습니다.
+                                    </p>
+                                  ) : (
+                                    portfolioStocksByCategory.map(({ category, stocks: categoryStocks }) => (
+                                      <div key={category} className="space-y-3">
+                                        <h4 className="font-bold text-xs uppercase tracking-wider text-light-secondary dark:text-dark-secondary border-b border-gray-100 dark:border-slate-700 pb-1">
+                                          {category}
+                                        </h4>
+                                        <div className="space-y-3 pl-2">
+                                          {categoryStocks.map(stock => {
+                                            const parentThresh = getEffectiveThresholds(
+                                              stock,
+                                              { ...editingThresholds, stocks: {} }
+                                            );
+
+                                            return (
+                                              <div key={stock.id} className="p-2.5 rounded-lg bg-gray-50/60 dark:bg-slate-900/40 border border-gray-200 dark:border-slate-800">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                  <span className="font-semibold text-xs text-light-text dark:text-dark-text">
+                                                    {stock.name} ({stock.ticker})
+                                                  </span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                  <Input
+                                                    label="주의 (%)"
+                                                    type="number"
+                                                    step="0.1"
+                                                    placeholder={`상위: ${parentThresh.caution}%`}
+                                                    value={editingThresholds.stocks?.[stock.id]?.caution ?? ''}
+                                                    onChange={(e) => handleThresholdChange('stocks', 'caution', e.target.value, stock.id)}
+                                                  />
+                                                  <Input
+                                                    label="경고 (%)"
+                                                    type="number"
+                                                    step="0.1"
+                                                    placeholder={`상위: ${parentThresh.warning}%`}
+                                                    value={editingThresholds.stocks?.[stock.id]?.warning ?? ''}
+                                                    onChange={(e) => handleThresholdChange('stocks', 'warning', e.target.value, stock.id)}
+                                                  />
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              </details>
+                            </div>
+
+                            <div className="flex justify-end mt-4">
+                              <Button onClick={handleSaveThresholds}>알림 기준 저장</Button>
+                            </div>
+                          </div>
                         )}
                     </SettingsSection>
                 ))}
@@ -1935,8 +2589,34 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           <Input label="종목 티커" id="stockTickerModal" name="ticker" value={stockForm.ticker} onChange={handleStockFormChange} required />
           <Input label="종목명" id="stockNameModal" name="name" value={stockForm.name} onChange={handleStockFormChange} required />
           <Select label="카테고리" id="stockCategoryModal" name="category" value={stockForm.category} onChange={handleStockFormChange} required>
-            {PORTFOLIO_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value={PortfolioCategory.Stock}>{PortfolioCategory.Stock}</option>
+            <option value={PortfolioCategory.Cash}>{PortfolioCategory.Cash}</option>
+            <option value={PortfolioCategory.Alternatives}>{PortfolioCategory.Alternatives}</option>
           </Select>
+          
+          {stockForm.category === PortfolioCategory.Stock && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select label="국가" id="stockCountryModal" name="country" value={stockForm.country || '한국'} onChange={handleStockFormChange} required>
+                <option value="한국">한국</option>
+                <option value="미국">미국</option>
+                <option value="기타">기타</option>
+              </Select>
+              <Select label="투자 방식 (세부분류)" id="stockStrategyModal" name="stockStrategy" value={stockForm.stockStrategy || (stockForm.country === '미국' ? '지수추종' : '지수추종형')} onChange={handleStockFormChange} required>
+                {stockForm.country === '미국' ? (
+                  <>
+                    <option value="지수추종">지수추종</option>
+                    <option value="개별/섹터투자">개별/섹터투자</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="지수추종형">지수추종형</option>
+                    <option value="개별/섹터투자">개별/섹터투자</option>
+                  </>
+                )}
+              </Select>
+            </div>
+          )}
+
           <div className="flex items-center pt-2 gap-6">
             <div className="flex items-center">
               <input

@@ -54,19 +54,20 @@ const DEFAULT_FEE_SETTINGS: FeeSettings = {
 };
 
 const DEFAULT_STOCKS: Stock[] = [
-  { id: 'stock-0043B0', ticker: '0043B0', name: 'Tiger 머니마켓액티브', category: PortfolioCategory.Cash, isPortfolio: true, isEtf: true },
-  { id: 'stock-497880', ticker: '497880', name: 'SOL CD금리&머니마켓액티브', category: PortfolioCategory.Cash, isPortfolio: true, isEtf: true },
-  { id: 'stock-411060', ticker: '411060', name: 'ACE KRX금현물', category: PortfolioCategory.Alternatives, isPortfolio: true, isEtf: true },
-  { id: 'stock-0064K0', ticker: '0064K0', name: 'Kodex 금액티브', category: PortfolioCategory.Alternatives, isPortfolio: true, isEtf: true },
-  { id: 'stock-365780', ticker: '365780', name: 'ACE 국고채10년', category: PortfolioCategory.Bonds, isPortfolio: true, isEtf: true },
-  { id: 'stock-305080', ticker: '305080', name: 'Tiger 미국채10년 선물', category: PortfolioCategory.Bonds, isPortfolio: true, isEtf: true },
-  { id: 'stock-0085P0', ticker: '0085P0', name: 'ACE 미국10년국채액티브', category: PortfolioCategory.Bonds, isPortfolio: true, isEtf: true },
-  { id: 'stock-161510', ticker: '161510', name: 'Plus 고배당주', category: PortfolioCategory.Dividend, isPortfolio: true, isEtf: true },
-  { id: 'stock-0098N0', ticker: '0098N0', name: 'Plus 자사주매입고배당주', category: PortfolioCategory.Dividend, isPortfolio: true, isEtf: true },
-  { id: 'stock-294400', ticker: '294400', name: 'Kiwoom 200TR', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
-  { id: 'stock-360750', ticker: '360750', name: 'Tiger 미국S&P500', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
-  { id: 'stock-379810', ticker: '379810', name: 'Kodex 미국나스닥100', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
-  { id: 'stock-283580', ticker: '283580', name: 'Kodex 차이나CSI300', category: PortfolioCategory.Stock, isPortfolio: true, isEtf: true },
+  { id: 'stock-0043B0', ticker: '0043B0', name: 'Tiger 머니마켓액티브', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
+  { id: 'stock-497880', ticker: '497880', name: 'SOL CD금리&머니마켓액티브', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
+  { id: 'stock-487250', ticker: '487250', name: 'Kodex 머니마켓액티브', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
+  { id: 'stock-411060', ticker: '411060', name: 'ACE KRX금현물', category: PortfolioCategory.Alternatives, country: '한국', stockStrategy: '금', isPortfolio: true, isEtf: true },
+  { id: 'stock-0064K0', ticker: '0064K0', name: 'Kodex 금액티브', category: PortfolioCategory.Alternatives, country: '한국', stockStrategy: '금', isPortfolio: true, isEtf: true },
+  { id: 'stock-365780', ticker: '365780', name: 'ACE 국고채10년', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
+  { id: 'stock-305080', ticker: '305080', name: 'Tiger 미국채10년 선물', category: PortfolioCategory.Cash, country: '미국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
+  { id: 'stock-0085P0', ticker: '0085P0', name: 'ACE 미국10년국채액티브', category: PortfolioCategory.Cash, country: '미국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
+  { id: 'stock-161510', ticker: '161510', name: 'Plus 고배당주', category: PortfolioCategory.Stock, country: '한국', stockStrategy: '개별/섹터투자', isPortfolio: true, isEtf: true },
+  { id: 'stock-0098N0', ticker: '0098N0', name: 'Plus 자사주매입고배당주', category: PortfolioCategory.Stock, country: '한국', stockStrategy: '개별/섹터투자', isPortfolio: true, isEtf: true },
+  { id: 'stock-294400', ticker: '294400', name: 'Kiwoom 200TR', category: PortfolioCategory.Stock, country: '한국', stockStrategy: '지수추종형', isPortfolio: true, isEtf: true },
+  { id: 'stock-360750', ticker: '360750', name: 'Tiger 미국S&P500', category: PortfolioCategory.Stock, country: '미국', stockStrategy: '지수추종', isPortfolio: true, isEtf: true },
+  { id: 'stock-379810', ticker: '379810', name: 'Kodex 미국나스닥100', category: PortfolioCategory.Stock, country: '미국', stockStrategy: '지수추종', isPortfolio: true, isEtf: true },
+  { id: 'stock-283580', ticker: '283580', name: 'Kodex 차이나CSI300', category: PortfolioCategory.Stock, country: '기타', stockStrategy: '지수추종형', isPortfolio: true, isEtf: true },
 ];
 
 const DEFAULT_INITIAL_PORTFOLIO: InitialPortfolio = {
@@ -88,6 +89,7 @@ const DEFAULT_INITIAL_PORTFOLIO: InitialPortfolio = {
 const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   global: { caution: 20, warning: 30 },
   categories: {},
+  groups: {},
   stocks: {}
 };
 
@@ -881,12 +883,15 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         const requiredPurchase = (totalPortfolioStockValue * (targetWeight / 100)) - currentValue;
         const disparityRatio = targetWeight > 0 ? ((currentWeight - targetWeight) / targetWeight) * 100 : (currentWeight > 0 ? Infinity : 0);
         
+        const category = (stock.category === '현금성자산' || stock.category === '현금형' || stock.category === '현금' ? PortfolioCategory.Cash : (stock.category === '대체' || stock.category === '금' ? PortfolioCategory.Alternatives : (stock.category || PortfolioCategory.Stock))) as PortfolioCategory;
+        
         if (targetWeight > 0) {
-            targetPercentagesByCategory[stock.category] = (targetPercentagesByCategory[stock.category] || 0) + targetWeight;
+            targetPercentagesByCategory[category] = (targetPercentagesByCategory[category] || 0) + targetWeight;
         }
         
         return {
             ...stock,
+            category,
             currentValue,
             currentWeight,
             targetWeight,

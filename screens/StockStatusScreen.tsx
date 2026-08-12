@@ -20,8 +20,6 @@ const formatCurrency = (value: number) => new Intl.NumberFormat('ko-KR', { style
 const categoryVisuals: Record<PortfolioCategory, { icon: React.ComponentType<{ className: string }>, color: string, bgColor: string, darkBgColor: string }> = {
   [PortfolioCategory.Cash]: { icon: BanknotesIcon, color: 'text-blue-500 dark:text-blue-400', bgColor: 'bg-blue-100', darkBgColor: 'dark:bg-blue-900/50' },
   [PortfolioCategory.Alternatives]: { icon: CircleStackIcon, color: 'text-green-500 dark:text-green-400', bgColor: 'bg-green-100', darkBgColor: 'dark:bg-green-900/50' },
-  [PortfolioCategory.Bonds]: { icon: ChartBarIcon, color: 'text-yellow-500 dark:text-yellow-400', bgColor: 'bg-yellow-100', darkBgColor: 'dark:bg-yellow-900/50' },
-  [PortfolioCategory.Dividend]: { icon: CurrencyWonIcon, color: 'text-orange-500 dark:text-orange-400', bgColor: 'bg-orange-100', darkBgColor: 'dark:bg-orange-900/50' },
   [PortfolioCategory.Stock]: { icon: ChartLineIcon, color: 'text-purple-500 dark:text-purple-400', bgColor: 'bg-purple-100', darkBgColor: 'dark:bg-purple-900/50' },
 };
 
