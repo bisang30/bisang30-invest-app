@@ -1283,7 +1283,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
     { id: 'accounts', title: '증권계좌 관리', icon: <IdentificationIcon className="w-6 h-6 text-green-500" /> },
     { id: 'bankAccounts', title: '은행 계좌 관리', icon: <BuildingLibraryIcon className="w-6 h-6 text-amber-500" /> },
     { id: 'stocks', title: '주식 종목 관리', icon: <ChartBarIcon className="w-6 h-6 text-purple-500" /> },
-    { id: 'fees', title: '수수료 및 제비용(세금) 설정', icon: <CurrencyWonIcon className="w-6 h-6 text-emerald-500 font-bold" /> },
+    { id: 'fees', title: '수수료, 세금 및 동일일자 매매 정산 방식', icon: <CurrencyWonIcon className="w-6 h-6 text-emerald-500 font-bold" /> },
   ];
 
   const portfolioSections = [
@@ -1813,6 +1813,29 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                     ) : (
                                       <Button onClick={requestNotificationPermission}>알림 활성화</Button>
                                     )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="pt-4 mt-4 border-t border-gray-200/50 dark:border-slate-700/50">
+                                <div>
+                                  <h4 className="font-semibold text-light-text dark:text-dark-text mb-1">동일 일자 매매 처리 방식</h4>
+                                  <p className="text-sm text-light-secondary dark:text-dark-secondary mb-2">
+                                    하루 동안 동일 종목을 매수 및 매도했을 때의 정산 처리 순서를 지정합니다.
+                                  </p>
+                                  <Select
+                                    label="정산 순서 선택"
+                                    id="appSettings-sameDayTradeOrderInput"
+                                    name="sameDayTradeOrder"
+                                    value={feeSettings.sameDayTradeOrder || 'sellFirst'}
+                                    onChange={(e) => setFeeSettings(prev => ({ ...prev, sameDayTradeOrder: e.target.value as any }))}
+                                  >
+                                    <option value="sellFirst">선매도 후매수 (당일 매수분 평단가 제외)</option>
+                                    <option value="buyFirst">선매수 후매도 (정통 선입선출법 - 잔고 0주 정산)</option>
+                                    <option value="inputOrder">입력 순서 (거래 등록 순서대로 평단가 롤링)</option>
+                                  </Select>
+                                  <div className="mt-2 text-xs text-light-secondary dark:text-dark-secondary leading-normal bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg border border-blue-200/50 dark:border-blue-900/30">
+                                    💡 <b>안내:</b> 당일 1주 매수 후 1주 매도 시 잔고가 여전히 1주로 남아있다면 <b>'선매수 후매도 (정통 선입선출법)'</b> 또는 <b>'입력 순서'</b>로 설정해 주세요.
                                   </div>
                                 </div>
                               </div>
