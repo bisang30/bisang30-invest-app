@@ -2,10 +2,10 @@
 
 import React, { useMemo, useState } from 'react';
 import Card from '../components/ui/Card';
-import { Trade, Stock, TradeType, InitialPortfolio, PortfolioCategory, FeeSettings } from '../types';
+import { Trade, Stock, TradeType, InitialPortfolio, PortfolioCategory, FeeSettings, Account, Broker, AccountTransaction, TransactionType, HistoricalGain } from '../types';
 import { PORTFOLIO_CATEGORIES } from '../constants';
 import { ChevronDownIcon, ChevronUpIcon, BanknotesIcon, CircleStackIcon, ChartBarIcon, CurrencyWonIcon, ChartLineIcon } from '../components/Icons';
-
+import { normalizeCategory } from './IndexScreen';
 
 interface StockStatusScreenProps {
   trades: Trade[];
@@ -13,6 +13,11 @@ interface StockStatusScreenProps {
   stockPrices: { [key: string]: number };
   initialPortfolio: InitialPortfolio;
   feeSettings?: FeeSettings;
+  totalCashBalance?: number;
+  accounts?: Account[];
+  brokers?: Broker[];
+  transactions?: AccountTransaction[];
+  historicalGains?: HistoricalGain[];
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(value);
@@ -23,10 +28,64 @@ const categoryVisuals: Record<PortfolioCategory, { icon: React.ComponentType<{ c
   [PortfolioCategory.Stock]: { icon: ChartLineIcon, color: 'text-purple-500 dark:text-purple-400', bgColor: 'bg-purple-100', darkBgColor: 'dark:bg-purple-900/50' },
 };
 
-
-const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, stockPrices, initialPortfolio, feeSettings }) => {
+const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ 
+  trades, stocks, stockPrices, initialPortfolio, feeSettings, totalCashBalance = 0,
+  accounts, brokers, transactions, historicalGains
+}) => {
   const stockMap = useMemo(() => new Map((stocks || []).map(s => [s.id, s])), [stocks]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [showCashAccountDetails, setShowCashAccountDetails] = useState(false);
+
+  const accountCashBalances = useMemo(() => {
+    if (!accounts || accounts.length === 0) return [];
+    const brokerMap = new Map((brokers || []).map(b => [b.id, b.name]));
+
+    return accounts.map(account => {
+      const accountTrades = (trades || []).filter(t => t.accountId === account.id);
+      const totalBuyCost = accountTrades
+        .filter(t => t.tradeType === TradeType.Buy)
+        .reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
+      const totalSellProceeds = accountTrades
+        .filter(t => t.tradeType === TradeType.Sell)
+        .reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
+      
+      let netCashFromTransactions = 0;
+      (transactions || []).forEach(t => {
+        const amount = Number(t.amount) || 0;
+        if (
+          t.accountId === account.id &&
+          (t.transactionType === TransactionType.Deposit ||
+            t.transactionType === TransactionType.Dividend ||
+            t.transactionType === TransactionType.Interest)
+        ) {
+          netCashFromTransactions += amount;
+        }
+        if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal) {
+          netCashFromTransactions += amount;
+        }
+        if (t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) {
+          netCashFromTransactions -= amount;
+        }
+        if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit) {
+          netCashFromTransactions -= amount;
+        }
+      });
+
+      const historicalPnlForAccount = (historicalGains || [])
+        .filter(g => g.accountId === account.id)
+        .reduce((sum, g) => sum + (Number(g.realizedPnl) || 0), 0);
+
+      const cashBalance = netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
+
+      return {
+        id: account.id,
+        name: account.name,
+        brokerName: brokerMap.get(account.brokerId) || '기타',
+        accountType: account.accountType,
+        cashBalance,
+      };
+    }).sort((a, b) => b.cashBalance - a.cashBalance);
+  }, [accounts, brokers, trades, transactions, historicalGains]);
 
   const holdingsByCategory = useMemo(() => {
     const holdingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
@@ -77,7 +136,7 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
       .filter(([, data]) => data.quantity > 0.00001)
       .map(([stockId, data]) => {
         const stock = stockMap.get(stockId);
-        if (!stock) return null;
+        if (!stock || stock.id === 'stock-cash-balance' || stock.ticker === 'CASH') return null;
 
         const avgPrice = data.quantity > 0 ? data.totalCost / data.quantity : 0;
         const currentPrice = stockPrices[stock.ticker] || 0;
@@ -87,6 +146,7 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
 
         return {
           ...stock,
+          category: normalizeCategory(stock.category),
           ...data,
           avgPrice,
           currentPrice,
@@ -96,6 +156,30 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    // Include cash deposit (예수금) in holdings
+    const cashStock = (stocks || []).find(s => s.id === 'stock-cash-balance' || s.ticker === 'CASH');
+    const cashTargetWeight = (initialPortfolio || {})[cashStock?.id || 'stock-cash-balance'] || (initialPortfolio || {})['CASH'] || 0;
+
+    if (totalCashBalance !== 0 || cashTargetWeight > 0 || holdingsWithValues.length === 0) {
+      holdingsWithValues.push({
+        id: cashStock?.id || 'stock-cash-balance',
+        ticker: cashStock?.ticker || 'CASH',
+        name: cashStock?.name || '예수금 (원화/외화)',
+        category: PortfolioCategory.Cash,
+        isPortfolio: true,
+        isEtf: false,
+        country: '한국',
+        stockStrategy: '현금',
+        quantity: 1,
+        totalCost: totalCashBalance,
+        avgPrice: totalCashBalance,
+        currentPrice: totalCashBalance,
+        currentValue: totalCashBalance,
+        profitLoss: 0,
+        profitLossRate: 0,
+      } as any);
+    }
 
     const totalPortfolioValue = holdingsWithValues.reduce((sum, h) => sum + h.currentValue, 0);
 
@@ -110,7 +194,7 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
     const grouped: { [key in PortfolioCategory]?: { totalValue: number, totalWeight: number, stocks: typeof holdingsWithWeight } } = {};
     
     holdingsWithWeight.forEach(stock => {
-      const category = stock.category;
+      const category = normalizeCategory(stock.category);
       if (!grouped[category]) {
         grouped[category] = { totalValue: 0, totalWeight: 0, stocks: [] };
       }
@@ -123,11 +207,17 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
         grouped[category as PortfolioCategory]!.stocks.sort((a,b) => b.currentValue - a.currentValue);
     }
 
-    return PORTFOLIO_CATEGORIES
+    const CATEGORY_ORDER = [
+      PortfolioCategory.Cash,
+      PortfolioCategory.Alternatives,
+      PortfolioCategory.Stock,
+    ];
+
+    return CATEGORY_ORDER
         .map(category => ({ category, data: grouped[category] }))
         .filter(item => item.data);
 
-  }, [trades, stockMap, stockPrices, initialPortfolio]);
+  }, [trades, stockMap, stockPrices, initialPortfolio, totalCashBalance, stocks, feeSettings]);
 
   const toggleCategory = (category: string) => {
     setExpandedCategories(prev => {
@@ -170,7 +260,9 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
                                 </div>
                             )}
                             <div>
-                                <h2 className="text-xl font-bold text-light-text dark:text-dark-text">{category}</h2>
+                                <h2 className="text-xl font-bold text-light-text dark:text-dark-text">
+                                  {category === PortfolioCategory.Cash ? '현금성 (현금형)' : category}
+                                </h2>
                                 <p className="text-sm text-light-secondary dark:text-dark-secondary">
                                     평가금액: {formatCurrency(data.totalValue)}
                                 </p>
@@ -183,13 +275,19 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
                     </div>
                     {isExpanded && (
                         <div id={`category-content-${category}`} className="px-4 pb-4 space-y-3 border-t border-gray-200/80 dark:border-slate-700">
-                           {data.stocks.map((holding) => (
+                           {data.stocks.map((holding) => {
+                                const isCashItem = holding.ticker === 'CASH' || holding.id === 'stock-cash-balance';
+                                return (
                                 <div key={holding.id} className="p-4 space-y-3 bg-light-bg dark:bg-dark-bg/50 rounded-lg mt-3">
                                   <div className="flex flex-col sm:flex-row justify-between sm:items-start">
                                     <div className="flex-1 pr-2">
                                       <div className="flex items-baseline flex-wrap">
                                           <h3 className="text-lg font-bold text-light-text dark:text-dark-text mr-2">{holding.name}</h3>
-                                          {holding.isEtf && (
+                                          {isCashItem ? (
+                                            <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/60 px-1.5 py-px rounded-full mr-2">
+                                                예수금
+                                            </span>
+                                          ) : holding.isEtf && (
                                             <span className="text-[11px] font-semibold text-gray-700 dark:text-slate-300 bg-gray-200 dark:bg-slate-700 px-1.5 py-px rounded-full mr-2">
                                                 ETF
                                             </span>
@@ -201,19 +299,43 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
                                               )}
                                           </p>
                                       </div>
-                                      <p className="text-sm text-light-secondary dark:text-dark-secondary mt-1">
-                                          수량: {holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                                          <span className="mx-1.5">·</span>
-                                          평단가: {formatCurrency(holding.avgPrice)}
-                                      </p>
+                                      {isCashItem ? (
+                                        <p className="text-sm text-light-secondary dark:text-dark-secondary mt-1">
+                                            계좌 예수금 (원화/외화)
+                                        </p>
+                                      ) : (
+                                        <p className="text-sm text-light-secondary dark:text-dark-secondary mt-1">
+                                            수량: {holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                                            <span className="mx-1.5">·</span>
+                                            평단가: {formatCurrency(holding.avgPrice)}
+                                        </p>
+                                      )}
                                     </div>
                                     <div className="text-right flex-shrink-0 mt-2 sm:mt-0 sm:ml-2">
-                                      <div className={`text-xl font-bold ${holding.profitLoss >= 0 ? 'text-profit' : 'text-loss'}`}>
-                                          {holding.profitLossRate.toFixed(2)}%
-                                      </div>
-                                      <div className={`text-sm ${holding.profitLoss >= 0 ? 'text-profit' : 'text-loss'}`}>
-                                          {formatCurrency(holding.profitLoss)}
-                                      </div>
+                                      {isCashItem ? (
+                                        <button 
+                                          onClick={() => setShowCashAccountDetails(prev => !prev)}
+                                          className="text-right flex flex-col items-end group focus:outline-none cursor-pointer"
+                                          title="클릭하여 계좌별 예수금 상세 보기"
+                                        >
+                                          <div className="text-xl font-bold text-light-primary dark:text-dark-primary group-hover:underline flex items-center gap-1">
+                                            {formatCurrency(holding.currentValue)}
+                                            {showCashAccountDetails ? <ChevronUpIcon className="w-4 h-4 text-light-secondary dark:text-dark-secondary" /> : <ChevronDownIcon className="w-4 h-4 text-light-secondary dark:text-dark-secondary" />}
+                                          </div>
+                                          <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                            {showCashAccountDetails ? '계좌별 상세보기 닫기' : '계좌별 잔액 보기 ▾'}
+                                          </span>
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <div className={`text-xl font-bold ${holding.profitLoss >= 0 ? 'text-profit' : 'text-loss'}`}>
+                                              {holding.profitLossRate.toFixed(2)}%
+                                          </div>
+                                          <div className={`text-sm ${holding.profitLoss >= 0 ? 'text-profit' : 'text-loss'}`}>
+                                              {formatCurrency(holding.profitLoss)}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
 
@@ -221,16 +343,72 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
                                     <div className="flex justify-between items-center mb-2">
                                         <div>
                                           <span className="text-xs text-light-secondary dark:text-dark-secondary">평가금액</span>
-                                          <p className="text-lg font-bold text-light-primary dark:text-dark-primary">{formatCurrency(holding.currentValue)}</p>
+                                          <p 
+                                            onClick={() => isCashItem && setShowCashAccountDetails(prev => !prev)}
+                                            className={`text-lg font-bold text-light-primary dark:text-dark-primary ${isCashItem ? 'cursor-pointer hover:underline' : ''}`}
+                                          >
+                                            {formatCurrency(holding.currentValue)}
+                                          </p>
                                         </div>
-                                        <div className="text-right">
-                                          <span className="text-xs text-light-secondary dark:text-dark-secondary">현재가</span>
-                                          <p className="text-base font-semibold text-light-text dark:text-dark-text">{formatCurrency(holding.currentPrice)}</p>
-                                        </div>
+                                        {isCashItem ? (
+                                          <button
+                                            onClick={() => setShowCashAccountDetails(prev => !prev)}
+                                            className="text-xs font-semibold px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center gap-1 cursor-pointer"
+                                          >
+                                            <span>계좌별 예수금</span>
+                                            {showCashAccountDetails ? <ChevronUpIcon className="w-3.5 h-3.5" /> : <ChevronDownIcon className="w-3.5 h-3.5" />}
+                                          </button>
+                                        ) : (
+                                          <div className="text-right">
+                                            <span className="text-xs text-light-secondary dark:text-dark-secondary">현재가</span>
+                                            <p className="text-base font-semibold text-light-text dark:text-dark-text">{formatCurrency(holding.currentPrice)}</p>
+                                          </div>
+                                        )}
                                     </div>
 
+                                    {isCashItem && showCashAccountDetails && (
+                                      <div className="mt-3 pt-3 border-t border-dashed border-blue-200 dark:border-blue-800/80 bg-blue-50/50 dark:bg-blue-950/30 -mx-4 -mb-3 p-4 rounded-b-lg space-y-2">
+                                        <div className="flex justify-between items-center mb-2">
+                                          <span className="text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1">
+                                            <BanknotesIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                            계좌별 예수금 상세 ({accountCashBalances.length}개 계좌)
+                                          </span>
+                                          <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                                            합계: {formatCurrency(holding.currentValue)}
+                                          </span>
+                                        </div>
+                                        {accountCashBalances.length === 0 ? (
+                                          <p className="text-xs text-light-secondary dark:text-dark-secondary py-1">등록된 증권 계좌가 없습니다.</p>
+                                        ) : (
+                                          <div className="space-y-1.5">
+                                            {accountCashBalances.map(acc => {
+                                              const ratio = holding.currentValue > 0 ? Math.max(0, (acc.cashBalance / holding.currentValue) * 100) : 0;
+                                              return (
+                                                <div key={acc.id} className="flex justify-between items-center text-xs p-2.5 bg-white dark:bg-slate-800/80 rounded-lg border border-blue-100 dark:border-slate-700/80 shadow-xs">
+                                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="font-bold text-gray-800 dark:text-slate-200">{acc.name}</span>
+                                                    <span className="text-[10px] text-gray-600 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
+                                                      {acc.brokerName}{acc.accountType ? ` · ${acc.accountType}` : ''}
+                                                    </span>
+                                                  </div>
+                                                  <div className="text-right">
+                                                    <span className={`font-bold ${acc.cashBalance < 0 ? 'text-loss' : 'text-gray-900 dark:text-slate-100'}`}>
+                                                      {formatCurrency(acc.cashBalance)}
+                                                    </span>
+                                                    <span className="text-[10px] text-light-secondary dark:text-dark-secondary ml-1.5">
+                                                      ({ratio.toFixed(1)}%)
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
                                     {holding.isPortfolio && (
-                                      <div>
+                                      <div className="mt-2">
                                         <div className="flex justify-between text-sm mb-1 flex-wrap">
                                             <span className="font-medium">현재 비중: {holding.currentWeight.toFixed(2)}%</span>
                                             <span className="text-light-secondary dark:text-dark-secondary">
@@ -254,7 +432,8 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({ trades, stocks, s
                                     )}
                                   </div>
                                 </div>
-                            ))}
+                              );
+                            })}
                         </div>
                     )}
                 </Card>

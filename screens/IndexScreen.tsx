@@ -55,6 +55,17 @@ const findValidXlsxLibrary = (mod: any): any | null => {
 };
 
 
+export const CASH_BALANCE_STOCK: Stock = {
+  id: 'stock-cash-balance',
+  ticker: 'CASH',
+  name: '예수금 (원화/외화)',
+  category: PortfolioCategory.Cash,
+  country: '한국',
+  stockStrategy: '현금',
+  isPortfolio: true,
+  isEtf: false,
+};
+
 interface StockFormState extends Omit<Stock, 'id' | 'expenseRatio'> {
   expenseRatio: string;
 }
@@ -381,7 +392,13 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   }, [backgroundFetchInterval]);
 
   const brokerMap = useMemo(() => new Map((brokers || []).map(b => [b.id, b.name])), [brokers]);
-  const portfolioStocks = useMemo(() => (stocks || []).filter(s => s.isPortfolio), [stocks]);
+  const portfolioStocks = useMemo(() => {
+    const list = (stocks || []).filter(s => s.isPortfolio);
+    if (!list.some(s => s.id === 'stock-cash-balance' || s.ticker === 'CASH')) {
+      return [...list, CASH_BALANCE_STOCK];
+    }
+    return list;
+  }, [stocks]);
 
   const toggleSection = (sectionId: string) => {
     setOpenSection(current => (current === sectionId ? null : sectionId));

@@ -54,6 +54,7 @@ const DEFAULT_FEE_SETTINGS: FeeSettings = {
 };
 
 const DEFAULT_STOCKS: Stock[] = [
+  { id: 'stock-cash-balance', ticker: 'CASH', name: '예수금 (원화/외화)', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: false },
   { id: 'stock-0043B0', ticker: '0043B0', name: 'Tiger 머니마켓액티브', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
   { id: 'stock-497880', ticker: '497880', name: 'SOL CD금리&머니마켓액티브', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
   { id: 'stock-487250', ticker: '487250', name: 'Kodex 머니마켓액티브', category: PortfolioCategory.Cash, country: '한국', stockStrategy: '현금', isPortfolio: true, isEtf: true },
@@ -864,7 +865,21 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     const ytdBase = startOfYearAssets + netInflowThisYear;
     const ytd = ytdBase > 0 ? (ytdProfit / ytdBase) * 100 : 0;
     const twrr = calculateTWRR(monthlyValues, mainPortfolioTransactions, securityAccountIds);
-    const portfolioStockIds = new Set((stocks || []).filter(s => s.isPortfolio).map(s => s.id));
+    const effectiveStocks = [...(stocks || [])];
+    if (!effectiveStocks.some(s => s.id === 'stock-cash-balance' || s.ticker === 'CASH')) {
+      effectiveStocks.push({
+        id: 'stock-cash-balance',
+        ticker: 'CASH',
+        name: '예수금 (원화/외화)',
+        category: PortfolioCategory.Cash,
+        country: '한국',
+        stockStrategy: '현금',
+        isPortfolio: true,
+        isEtf: false,
+      });
+    }
+
+    const portfolioStockIds = new Set(effectiveStocks.filter(s => s.isPortfolio).map(s => s.id));
     
     let totalPortfolioStockValue = 0;
     for (const stockId in valueByStock) {
@@ -872,12 +887,17 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             totalPortfolioStockValue += valueByStock[stockId];
         }
     }
+    // Include total cash deposit balance in total portfolio value
+    totalPortfolioStockValue += totalCashBalance;
 
     const targetPercentagesByCategory: { [key in PortfolioCategory]?: number } = {};
-    const individualStocksWithDetails = (stocks || [])
+    const individualStocksWithDetails = effectiveStocks
       .filter(stock => stock.isPortfolio)
       .map(stock => {
-        const currentValue = valueByStock[stock.id] || 0;
+        let currentValue = valueByStock[stock.id] || 0;
+        if (stock.id === 'stock-cash-balance' || stock.ticker === 'CASH') {
+          currentValue = totalCashBalance;
+        }
         const currentWeight = totalPortfolioStockValue > 0 ? (currentValue / totalPortfolioStockValue) * 100 : 0;
         const targetWeight = (initialPortfolio || {})[stock.id] || 0;
         const requiredPurchase = (totalPortfolioStockValue * (targetWeight / 100)) - currentValue;
@@ -1002,6 +1022,11 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           stockPrices={stockPrices} 
           initialPortfolio={initialPortfolio} 
           feeSettings={feeSettings}
+          totalCashBalance={totalCashBalance}
+          accounts={accounts}
+          brokers={brokers}
+          transactions={mainPortfolioTransactions}
+          historicalGains={historicalGains}
         />;
       case Screen.AccountStatus:
         return <AccountStatusScreen 
