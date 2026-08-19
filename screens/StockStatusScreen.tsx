@@ -6,6 +6,7 @@ import { Trade, Stock, TradeType, InitialPortfolio, PortfolioCategory, FeeSettin
 import { PORTFOLIO_CATEGORIES } from '../constants';
 import { ChevronDownIcon, ChevronUpIcon, BanknotesIcon, CircleStackIcon, ChartBarIcon, CurrencyWonIcon, ChartLineIcon } from '../components/Icons';
 import { normalizeCategory } from './IndexScreen';
+import { calculateAccountCashBalance } from '../services/feeService';
 
 interface StockStatusScreenProps {
   trades: Trade[];
@@ -41,41 +42,14 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
     const brokerMap = new Map((brokers || []).map(b => [b.id, b.name]));
 
     return accounts.map(account => {
-      const accountTrades = (trades || []).filter(t => t.accountId === account.id);
-      const totalBuyCost = accountTrades
-        .filter(t => t.tradeType === TradeType.Buy)
-        .reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
-      const totalSellProceeds = accountTrades
-        .filter(t => t.tradeType === TradeType.Sell)
-        .reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
-      
-      let netCashFromTransactions = 0;
-      (transactions || []).forEach(t => {
-        const amount = Number(t.amount) || 0;
-        if (
-          t.accountId === account.id &&
-          (t.transactionType === TransactionType.Deposit ||
-            t.transactionType === TransactionType.Dividend ||
-            t.transactionType === TransactionType.Interest)
-        ) {
-          netCashFromTransactions += amount;
-        }
-        if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal) {
-          netCashFromTransactions += amount;
-        }
-        if (t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) {
-          netCashFromTransactions -= amount;
-        }
-        if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit) {
-          netCashFromTransactions -= amount;
-        }
-      });
-
-      const historicalPnlForAccount = (historicalGains || [])
-        .filter(g => g.accountId === account.id)
-        .reduce((sum, g) => sum + (Number(g.realizedPnl) || 0), 0);
-
-      const cashBalance = netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
+      const cashBalance = calculateAccountCashBalance(
+        account,
+        trades,
+        transactions,
+        historicalGains,
+        feeSettings,
+        stockMap
+      );
 
       return {
         id: account.id,
@@ -85,7 +59,14 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
         cashBalance,
       };
     }).sort((a, b) => b.cashBalance - a.cashBalance);
-  }, [accounts, brokers, trades, transactions, historicalGains]);
+  }, [accounts, brokers, trades, transactions, historicalGains, feeSettings, stockMap]);
+
+  const effectiveCashBalance = useMemo(() => {
+    if (accounts && accounts.length > 0) {
+      return accountCashBalances.reduce((sum, a) => sum + a.cashBalance, 0);
+    }
+    return totalCashBalance;
+  }, [accounts, accountCashBalances, totalCashBalance]);
 
   const holdingsByCategory = useMemo(() => {
     const holdingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
@@ -161,7 +142,7 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
     const cashStock = (stocks || []).find(s => s.id === 'stock-cash-balance' || s.ticker === 'CASH');
     const cashTargetWeight = (initialPortfolio || {})[cashStock?.id || 'stock-cash-balance'] || (initialPortfolio || {})['CASH'] || 0;
 
-    if (totalCashBalance !== 0 || cashTargetWeight > 0 || holdingsWithValues.length === 0) {
+    if (effectiveCashBalance !== 0 || cashTargetWeight > 0 || holdingsWithValues.length === 0) {
       holdingsWithValues.push({
         id: cashStock?.id || 'stock-cash-balance',
         ticker: cashStock?.ticker || 'CASH',
@@ -172,10 +153,10 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
         country: '한국',
         stockStrategy: '현금',
         quantity: 1,
-        totalCost: totalCashBalance,
-        avgPrice: totalCashBalance,
-        currentPrice: totalCashBalance,
-        currentValue: totalCashBalance,
+        totalCost: effectiveCashBalance,
+        avgPrice: effectiveCashBalance,
+        currentPrice: effectiveCashBalance,
+        currentValue: effectiveCashBalance,
         profitLoss: 0,
         profitLossRate: 0,
       } as any);

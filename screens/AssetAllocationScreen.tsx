@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { calculateTradeFeeAndTax } from '../services/feeService';
+import { calculateTradeFeeAndTax, calculateAccountCashBalance } from '../services/feeService';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Stock, TradeType, HistoricalGain, PortfolioCategory, FeeSettings } from '../types';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -222,34 +222,14 @@ const AssetAllocationScreen: React.FC<AssetAllocationScreenProps> = ({
         .filter((item): item is NonNullable<typeof item> => item !== null);
 
       // Cash Balance Calculation
-      const totalBuyCost = accountTrades
-        .filter(t => t.tradeType === 'BUY')
-        .reduce((sum, t) => {
-          const stock = stockMap.get(t.stockId);
-          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
-          return sum + feeCalc.total;
-        }, 0);
-
-      const totalSellProceeds = accountTrades
-        .filter(t => t.tradeType === 'SELL')
-        .reduce((sum, t) => {
-          const stock = stockMap.get(t.stockId);
-          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
-          return sum + feeCalc.total;
-        }, 0);
-
-      let netCashFromTransactions = 0;
-      (transactions || []).forEach(t => {
-        const amount = Number(t.amount) || 0;
-        if ((t.accountId === account.id && (t.transactionType === TransactionType.Deposit || t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest)) || (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal)) {
-          netCashFromTransactions += amount;
-        } else if ((t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) || (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit)) {
-          netCashFromTransactions -= amount;
-        }
-      });
-
-      const historicalPnlForAccount = (historicalGains || []).filter(g => g.accountId === account.id).reduce((sum, g) => sum + (Number(g.realizedPnl) || 0), 0);
-      const cashBalance = netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
+      const cashBalance = calculateAccountCashBalance(
+        account,
+        trades,
+        transactions,
+        historicalGains,
+        feeSettings,
+        stockMap
+      );
 
       return {
         ...account,

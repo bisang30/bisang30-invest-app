@@ -21,6 +21,7 @@ import Button from './components/ui/Button';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { fetchStockPrices } from './services/stockPriceService';
 import { exportAllData } from './services/exportService';
+import { calculateAccountCashBalance } from './services/feeService';
 import { PORTFOLIO_CATEGORIES, DATA_VERSION } from './constants';
 import { auth, db, signInWithGoogle, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -695,33 +696,18 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const totalCashBalance = useMemo(() => {
     let totalCash = 0;
     (accounts || []).forEach(account => {
-        const accountTrades = mainPortfolioTrades.filter(t => t.accountId === account.id);
-        const totalBuyCost = accountTrades.filter(t => t.tradeType === TradeType.Buy).reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
-        const totalSellProceeds = accountTrades.filter(t => t.tradeType === TradeType.Sell).reduce((sum, t) => sum + (Number(t.price) || 0) * (Number(t.quantity) || 0), 0);
-        let netCashFromTransactions = 0;
-        mainPortfolioTransactions.forEach(t => {
-            const amount = Number(t.amount) || 0;
-            if (t.accountId === account.id && (t.transactionType === TransactionType.Deposit || t.transactionType === TransactionType.Dividend || t.transactionType === TransactionType.Interest)) {
-                netCashFromTransactions += amount;
-            }
-            if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal) {
-                netCashFromTransactions += amount;
-            }
-            if (t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) {
-                netCashFromTransactions -= amount;
-            }
-            if (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit) {
-                netCashFromTransactions -= amount;
-            }
-        });
-        const historicalPnlForAccount = (historicalGains || [])
-            .filter(g => g.accountId === account.id)
-            .reduce((sum, g) => sum + (Number(g.realizedPnl) || 0), 0);
-        const cashBalance = netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
+        const cashBalance = calculateAccountCashBalance(
+          account,
+          mainPortfolioTrades,
+          mainPortfolioTransactions,
+          historicalGains,
+          feeSettings,
+          stockMap
+        );
         totalCash += cashBalance;
     });
     return totalCash;
-  }, [accounts, mainPortfolioTrades, mainPortfolioTransactions, historicalGains]);
+  }, [accounts, mainPortfolioTrades, mainPortfolioTransactions, historicalGains, feeSettings, stockMap]);
 
 
   const netExternalDeposits = useMemo(() => {

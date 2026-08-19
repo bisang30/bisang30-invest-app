@@ -1,4 +1,4 @@
-import { Trade, Stock, Account, FeeSettings, TradeType } from '../types';
+import { Trade, Stock, Account, FeeSettings, TradeType, AccountTransaction, TransactionType, HistoricalGain } from '../types';
 
 /**
  * 수수료/세금 면제 대상 계좌인지 검사하는 헬퍼
@@ -111,4 +111,63 @@ export function calculateDividendTax(
     tax,
     netAmount: rawAmount - tax,
   };
+}
+
+/**
+ * 계좌별 현금 예수금 정확한 계산 (매수비용 차감, 매도수령액 가산, 입출금/배당/이자, 과거확정손익 반영)
+ */
+export function calculateAccountCashBalance(
+  account: Account,
+  trades: Trade[],
+  transactions: AccountTransaction[],
+  historicalGains: HistoricalGain[] = [],
+  feeSettings?: FeeSettings,
+  stockMap?: Map<string, Stock>
+): number {
+  const accountTrades = (trades || []).filter(t => t.accountId === account.id);
+
+  const totalBuyCost = accountTrades
+    .filter(t => t.tradeType === TradeType.Buy)
+    .reduce((sum, t) => {
+      const stock = stockMap ? stockMap.get(t.stockId) : undefined;
+      const feeCalc = feeSettings
+        ? calculateTradeFeeAndTax(t, stock, account, feeSettings)
+        : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
+      return sum + feeCalc.total;
+    }, 0);
+
+  const totalSellProceeds = accountTrades
+    .filter(t => t.tradeType === TradeType.Sell)
+    .reduce((sum, t) => {
+      const stock = stockMap ? stockMap.get(t.stockId) : undefined;
+      const feeCalc = feeSettings
+        ? calculateTradeFeeAndTax(t, stock, account, feeSettings)
+        : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
+      return sum + feeCalc.total;
+    }, 0);
+
+  let netCashFromTransactions = 0;
+  (transactions || []).forEach(t => {
+    const amount = Number(t.amount) || 0;
+    if (
+      (t.accountId === account.id &&
+        (t.transactionType === TransactionType.Deposit ||
+          t.transactionType === TransactionType.Dividend ||
+          t.transactionType === TransactionType.Interest)) ||
+      (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal)
+    ) {
+      netCashFromTransactions += amount;
+    } else if (
+      (t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) ||
+      (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit)
+    ) {
+      netCashFromTransactions -= amount;
+    }
+  });
+
+  const historicalPnlForAccount = (historicalGains || [])
+    .filter(g => g.accountId === account.id)
+    .reduce((sum, g) => sum + (Number(g.realizedPnl) || 0), 0);
+
+  return netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
 }

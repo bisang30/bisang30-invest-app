@@ -7,7 +7,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Screen, BankAccount, Stock, TradeType, HistoricalGain, FeeSettings } from '../types';
 import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, WalletIcon, IdentificationIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
-import { calculateTradeFeeAndTax } from '../services/feeService';
+import { calculateTradeFeeAndTax, calculateAccountCashBalance } from '../services/feeService';
 import DepositBreakdownModal from '../components/DepositBreakdownModal';
 
 
@@ -130,48 +130,30 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
         }).filter((item): item is NonNullable<typeof item> => item !== null)
           .sort((a, b) => b.currentValue - a.currentValue);
 
-      const totalBuyCost = accountTrades
-        .filter(t => t.tradeType === 'BUY')
-        .reduce((sum, t) => {
-          const stock = stockMap.get(t.stockId);
-          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
-          return sum + feeCalc.total;
-        }, 0);
-
-      const totalSellProceeds = accountTrades
-        .filter(t => t.tradeType === 'SELL')
-        .reduce((sum, t) => {
-          const stock = stockMap.get(t.stockId);
-          const feeCalc = feeSettings ? calculateTradeFeeAndTax(t, stock, account, feeSettings) : { total: (Number(t.price) || 0) * (Number(t.quantity) || 0) };
-          return sum + feeCalc.total;
-        }, 0);
-
       let netDeposits = 0;
-      let netCashFromTransactions = 0;
       (transactions || []).forEach(t => {
         const amount = Number(t.amount) || 0;
         if (
-          (t.accountId === account.id &&
-            (t.transactionType === TransactionType.Deposit ||
-              t.transactionType === TransactionType.Dividend ||
-              t.transactionType === TransactionType.Interest)) ||
+          (t.accountId === account.id && t.transactionType === TransactionType.Deposit) ||
           (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Withdrawal)
         ) {
-          netCashFromTransactions += amount;
-          if (t.transactionType !== TransactionType.Dividend && t.transactionType !== TransactionType.Interest) {
-            netDeposits += amount;
-          }
+          netDeposits += amount;
         } else if (
           (t.accountId === account.id && t.transactionType === TransactionType.Withdrawal) ||
           (t.counterpartyAccountId === account.id && t.transactionType === TransactionType.Deposit)
         ) {
-          netCashFromTransactions -= amount;
           netDeposits -= amount;
         }
       });
       
-      const historicalPnlForAccount = (historicalGains || []).filter(g => g.accountId === account.id).reduce((sum, g) => sum + (Number(g.realizedPnl) || 0), 0);
-      const cashBalance = netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
+      const cashBalance = calculateAccountCashBalance(
+        account,
+        trades,
+        transactions,
+        historicalGains,
+        feeSettings,
+        stockMap
+      );
       const totalValue = cashBalance + stockValue;
       const profitLoss = totalValue - netDeposits;
       const returnRate = netDeposits !== 0 ? (profitLoss / netDeposits) * 100 : 0;
