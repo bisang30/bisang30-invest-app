@@ -61,6 +61,7 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
     amount: 0,
     transactionType: TransactionType.Deposit,
     counterpartyAccountId: undefined,
+    memo: '',
   });
   
   const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null);
@@ -272,7 +273,20 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
       alert('계좌와 금액을 올바르게 입력해주세요.');
       return;
     }
-    setTransactions(prev => [{ ...newTransaction, amount, id: Date.now().toString() }, ...(prev || [])]);
+    setTransactions(prev => [{
+      ...newTransaction,
+      amount,
+      memo: newTransaction.memo?.trim() || undefined,
+      id: Date.now().toString()
+    }, ...(prev || [])]);
+    setNewTransaction({
+      date: new Date().toISOString().split('T')[0],
+      accountId: (sortedAccounts || [])[0]?.id || '',
+      amount: 0,
+      transactionType: TransactionType.Deposit,
+      counterpartyAccountId: undefined,
+      memo: '',
+    });
     setIsTxModalOpen(false);
   };
   
@@ -503,6 +517,15 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
               {(bankAccounts || []).map(bacc => <option key={bacc.id} value={bacc.id}>{bacc.bankName} {bacc.name}</option>)}
             </optgroup>
           </Select>
+          <Input
+            label="메모 (선택)"
+            id="newTxMemo"
+            name="memo"
+            type="text"
+            placeholder="간단한 메모를 입력하세요 (예: 월급 입금, 적금 만기 등)"
+            value={newTransaction.memo || ''}
+            onChange={(e) => setNewTransaction(p => ({...p, memo: e.target.value}))}
+          />
           <div className="flex justify-end pt-4">
             <Button type="submit">완료</Button>
           </div>

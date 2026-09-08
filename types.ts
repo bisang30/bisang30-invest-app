@@ -100,6 +100,7 @@ export interface AccountTransaction {
   counterpartyAccountId?: string;
   stockId?: string;
   goalId?: string;
+  memo?: string;
 }
 
 export interface RetirementGoal {

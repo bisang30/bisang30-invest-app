@@ -158,6 +158,7 @@ export const exportAllData = (
             '구분': tx.transactionType === TransactionType.Deposit ? '입금' : '출금',
             '금액': tx.amount,
             '상대계좌': tx.counterpartyAccountId ? allAccountsMap.get(tx.counterpartyAccountId) : '외부',
+            '메모': tx.memo || '',
             '목표': tx.goalId ? goalMap.get(tx.goalId) : ''
         }))
     });

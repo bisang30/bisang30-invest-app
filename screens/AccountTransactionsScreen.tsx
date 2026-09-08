@@ -25,7 +25,7 @@ const formatNumber = (value: number | string): string => {
 
 type SortKey = keyof AccountTransaction | 'accountName' | 'counterpartyAccountName';
 
-const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ transactions, setTransactions, accounts, bankAccounts, investmentGoals }) => {
+const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ transactions, setTransactions, accounts, bankAccounts }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<AccountTransaction | null>(null);
   const [formState, setFormState] = useState<Omit<AccountTransaction, 'id'>>({
@@ -34,7 +34,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
     amount: 0,
     transactionType: TransactionType.Deposit,
     counterpartyAccountId: undefined,
-    goalId: undefined,
+    memo: '',
   });
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -47,7 +47,8 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
     month: 'all',
     accountId: 'all',
     transactionType: 'all',
-    counterpartyAccountId: 'all'
+    counterpartyAccountId: 'all',
+    keyword: '',
   });
 
   const allAccountsMap = useMemo(() => {
@@ -90,6 +91,12 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
          if (filters.counterpartyAccountId === 'none' && t.counterpartyAccountId) return false;
          if (filters.counterpartyAccountId !== 'none' && t.counterpartyAccountId !== filters.counterpartyAccountId) return false;
       }
+      if (filters.keyword && filters.keyword.trim() !== '') {
+        const kw = filters.keyword.trim().toLowerCase();
+        const memoMatch = (t.memo || '').toLowerCase().includes(kw);
+        const accountMatch = (allAccountsMap.get(t.accountId) || '').toLowerCase().includes(kw);
+        if (!memoMatch && !accountMatch) return false;
+      }
       return true;
     });
 
@@ -109,6 +116,9 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
         } else if (key === 'date') {
             aValue = new Date(a.date).getTime();
             bValue = new Date(b.date).getTime();
+        } else if (key === 'memo') {
+            aValue = a.memo || '';
+            bValue = b.memo || '';
         } else {
             aValue = a[key as keyof AccountTransaction];
             bValue = b[key as keyof AccountTransaction];
@@ -118,8 +128,8 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
             if (aValue < bValue) return sortConfig.direction === 'ascending' ? -1 : 1;
             if (aValue > bValue) return sortConfig.direction === 'ascending' ? 1 : -1;
         } else {
-            const strA = String(aValue).toLowerCase();
-            const strB = String(bValue).toLowerCase();
+            const strA = String(aValue || '').toLowerCase();
+            const strB = String(bValue || '').toLowerCase();
             if (strA < strB) return sortConfig.direction === 'ascending' ? -1 : 1;
             if (strA > strB) return sortConfig.direction === 'ascending' ? 1 : -1;
         }
@@ -129,7 +139,14 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
     return filteredItems;
   }, [transactions, sortConfig, filters, allAccountsMap]);
 
-  const isFilterActive = useMemo(() => Object.values(filters).some(v => v !== 'all'), [filters]);
+  const isFilterActive = useMemo(() => 
+    filters.year !== 'all' || 
+    filters.month !== 'all' || 
+    filters.accountId !== 'all' || 
+    filters.transactionType !== 'all' || 
+    filters.counterpartyAccountId !== 'all' ||
+    Boolean(filters.keyword && filters.keyword.trim() !== '')
+  , [filters]);
   
   const resetFilters = () => {
     setFilters({
@@ -138,6 +155,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
       accountId: 'all',
       transactionType: 'all',
       counterpartyAccountId: 'all',
+      keyword: '',
     });
   };
 
@@ -164,12 +182,10 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
     if (name === 'amount') {
       const numValue = parseFloat(value.replace(/,/g, ''));
       setFormState(prev => ({ ...prev, [name]: isNaN(numValue) ? 0 : numValue }));
+    } else if (name === 'counterpartyAccountId') {
+      setFormState(prev => ({...prev, [name]: value === '' ? undefined : value}));
     } else {
-      if (name === 'counterpartyAccountId' || name === 'goalId') {
-        setFormState(prev => ({...prev, [name]: value === '' ? undefined : value}));
-      } else {
-        setFormState(prev => ({ ...prev, [name]: value }));
-      }
+      setFormState(prev => ({ ...prev, [name]: value }));
     }
   };
 
@@ -181,7 +197,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
       amount: 0,
       transactionType: TransactionType.Deposit,
       counterpartyAccountId: undefined,
-      goalId: undefined,
+      memo: '',
     });
     setIsModalOpen(true);
   };
@@ -194,7 +210,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
       amount: transaction.amount,
       transactionType: transaction.transactionType,
       counterpartyAccountId: transaction.counterpartyAccountId,
-      goalId: transaction.goalId,
+      memo: transaction.memo || '',
     });
     setIsModalOpen(true);
   };
@@ -218,9 +234,10 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
       return;
     }
 
-    const transactionToSave = {
+    const transactionToSave: Omit<AccountTransaction, 'id'> = {
       ...formState,
       amount,
+      memo: formState.memo?.trim() || undefined,
     };
 
     if (editingTransaction) {
@@ -311,7 +328,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
               </div>
             </div>
           </summary>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <Select label="연도" name="year" value={filters.year} onChange={handleFilterChange}>
               <option value="all">전체</option>
               {filterOptions.years.map(y => <option key={y} value={y}>{y}년</option>)}
@@ -335,6 +352,15 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
               <option value="none">없음(외부)</option>
               {filterOptions.counterpartyAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Select>
+            <Input
+              label="메모 검색"
+              id="filterKeyword"
+              name="keyword"
+              type="text"
+              placeholder="메모/계좌명 검색"
+              value={filters.keyword}
+              onChange={(e) => setFilters(prev => ({ ...prev, keyword: e.target.value }))}
+            />
           </div>
         </details>
       </Card>
@@ -353,6 +379,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
                 <th className="p-3 text-left"><button className="flex items-center" onClick={() => requestSort('transactionType')}>구분{getSortIndicator('transactionType')}</button></th>
                 <th className="p-3 text-right"><button className="flex items-center w-full justify-end" onClick={() => requestSort('amount')}>금액{getSortIndicator('amount')}</button></th>
                 <th className="p-3 text-left"><button className="flex items-center" onClick={() => requestSort('counterpartyAccountName')}>상대계좌{getSortIndicator('counterpartyAccountName')}</button></th>
+                <th className="p-3 text-left"><button className="flex items-center" onClick={() => requestSort('memo')}>메모{getSortIndicator('memo')}</button></th>
                 <th className="p-3 text-center">수정</th>
               </tr>
             </thead>
@@ -360,15 +387,24 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
               {filteredAndSortedTransactions.map(transaction => (
                 <tr key={transaction.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-blue-100/50 dark:hover:bg-gray-800 transition-colors duration-150">
                   <td className="p-3"><input type="checkbox" checked={selectedIds.has(transaction.id)} onChange={() => handleSelect(transaction.id)} aria-labelledby={`transaction-account-${transaction.id}`} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-light-primary focus:ring-light-primary bg-gray-100 dark:bg-gray-700" /></td>
-                  <td className="p-3">{transaction.date}</td>
-                  <td className="p-3 font-semibold" id={`transaction-account-${transaction.id}`}>{allAccountsMap.get(transaction.accountId) || 'N/A'}</td>
-                  <td className={`p-3 font-semibold ${transaction.transactionType === TransactionType.Withdrawal ? 'text-loss' : 'text-profit'}`}>
+                  <td className="p-3 whitespace-nowrap">{transaction.date}</td>
+                  <td className="p-3 font-semibold whitespace-nowrap" id={`transaction-account-${transaction.id}`}>{allAccountsMap.get(transaction.accountId) || 'N/A'}</td>
+                  <td className={`p-3 font-semibold whitespace-nowrap ${transaction.transactionType === TransactionType.Withdrawal ? 'text-loss' : 'text-profit'}`}>
                     {transaction.transactionType === TransactionType.Deposit ? '입금' : 
                      transaction.transactionType === TransactionType.Withdrawal ? '출금' : 
                      transaction.transactionType === TransactionType.Interest ? '이용료' : '배당'}
                   </td>
-                  <td className="p-3 text-right">{formatCurrency(Number(transaction.amount) || 0)}</td>
-                  <td className="p-3">{transaction.counterpartyAccountId ? allAccountsMap.get(transaction.counterpartyAccountId) : '외부'}</td>
+                  <td className="p-3 text-right font-medium whitespace-nowrap">{formatCurrency(Number(transaction.amount) || 0)}</td>
+                  <td className="p-3 whitespace-nowrap">{transaction.counterpartyAccountId ? allAccountsMap.get(transaction.counterpartyAccountId) : '외부'}</td>
+                  <td className="p-3 text-sm max-w-[200px]">
+                    {transaction.memo ? (
+                      <span className="inline-block px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-800 text-xs text-light-text dark:text-dark-text border border-gray-200/60 dark:border-slate-700/60 break-words" title={transaction.memo}>
+                        {transaction.memo}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300 dark:text-gray-600">-</span>
+                    )}
+                  </td>
                   <td className="p-3 text-center"><Button variant="secondary" onClick={() => handleEditClick(transaction)} className="px-2 py-1 text-xs">수정</Button></td>
                 </tr>
               ))}
@@ -395,7 +431,7 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
                                     <p className="font-bold text-base sm:text-lg text-light-text dark:text-dark-text">{allAccountsMap.get(transaction.accountId) || 'N/A'}</p>
                                     <p className="text-light-secondary dark:text-dark-secondary">{transaction.date}</p>
                                 </div>
-                <div className="text-right">
+                                <div className="text-right">
                                     <p className={`font-bold text-base sm:text-lg ${transaction.transactionType === TransactionType.Withdrawal ? 'text-loss' : 'text-profit'}`}>{formatCurrency(transaction.amount)}</p>
                                     <p className="text-light-secondary dark:text-dark-secondary">
                                       {transaction.transactionType === TransactionType.Deposit ? '입금' : 
@@ -404,6 +440,12 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
                                     </p>
                                 </div>
                             </div>
+                            {transaction.memo && (
+                                <div className="mt-1.5 text-xs bg-gray-100 dark:bg-slate-800/80 rounded px-2.5 py-1 text-light-text dark:text-dark-text border border-gray-200/60 dark:border-slate-700/60 flex items-start gap-1">
+                                    <span className="text-light-secondary dark:text-dark-secondary font-medium shrink-0">메모:</span>
+                                    <span className="break-all">{transaction.memo}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between items-end mt-2 text-sm">
                                 <p className="text-light-secondary dark:text-dark-secondary">
                                     상대: {transaction.counterpartyAccountId ? allAccountsMap.get(transaction.counterpartyAccountId) : '외부'}
@@ -438,10 +480,15 @@ const AccountTransactionsScreen: React.FC<AccountTransactionsScreenProps> = ({ t
               {(bankAccounts || []).map(bacc => <option key={bacc.id} value={bacc.id}>{bacc.bankName} {bacc.name}</option>)}
             </optgroup>
           </Select>
-          <Select label="투자 구분" id="goalId" name="goalId" value={formState.goalId || ''} onChange={handleInputChange}>
-            <option value="">자산배분 포트폴리오</option>
-            {(investmentGoals || []).map(goal => <option key={goal.id} value={goal.id}>{goal.name}</option>)}
-          </Select>
+          <Input
+            label="메모 (선택)"
+            id="memo"
+            name="memo"
+            type="text"
+            placeholder="간단한 메모를 입력하세요 (예: 월급 입금, 적금 만기, 생활비 등)"
+            value={formState.memo || ''}
+            onChange={handleInputChange}
+          />
           <div className="flex justify-between items-center pt-4">
             <div>
               {editingTransaction && (

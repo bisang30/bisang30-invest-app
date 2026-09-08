@@ -86,30 +86,30 @@ const DepositBreakdownModal: React.FC<DepositBreakdownModalProps> = ({
         if (t.accountId === account.id) {
           type = 'deposit';
           cashEffect = amount;
-          label = '현금 입금';
+          label = t.memo ? `현금 입금 (${t.memo})` : '현금 입금';
         } else {
           type = 'transfer_out';
           cashEffect = -amount;
-          label = '계좌 이체 (출금)';
+          label = t.memo ? `계좌 이체 (출금) - ${t.memo}` : '계좌 이체 (출금)';
         }
       } else if (t.transactionType === 'WITHDRAWAL') {
         if (t.accountId === account.id) {
           type = 'withdrawal';
           cashEffect = -amount;
-          label = '현금 출금';
+          label = t.memo ? `현금 출금 (${t.memo})` : '현금 출금';
         } else {
           type = 'transfer_in';
           cashEffect = amount;
-          label = '계좌 이체 (입금)';
+          label = t.memo ? `계좌 이체 (입금) - ${t.memo}` : '계좌 이체 (입금)';
         }
       } else if (t.transactionType === 'DIVIDEND') {
         type = 'dividend';
         cashEffect = amount;
-        label = '분배금/배당금 수령';
+        label = t.memo ? `분배금/배당금 수령 (${t.memo})` : '분배금/배당금 수령';
       } else if (t.transactionType === 'INTEREST') {
         type = 'interest';
         cashEffect = amount;
-        label = '이자 수령';
+        label = t.memo ? `이자 수령 (${t.memo})` : '이자 수령';
       }
 
       return {
