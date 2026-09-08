@@ -6,13 +6,15 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Screen, BankAccount, Stock, TradeType, HistoricalGain, FeeSettings } from '../types';
-import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, WalletIcon, IdentificationIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
+import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, WalletIcon, IdentificationIcon, ChevronDownIcon, ChevronUpIcon, ArrowsUpDownIcon } from '../components/Icons';
 import { calculateTradeFeeAndTax, calculateAccountCashBalance } from '../services/feeService';
 import DepositBreakdownModal from '../components/DepositBreakdownModal';
+import AccountOrderModal from '../components/AccountOrderModal';
 
 
 interface AccountStatusScreenProps {
   accounts: Account[];
+  setAccounts?: React.Dispatch<React.SetStateAction<Account[]>>;
   brokers: Broker[];
   trades: Trade[];
   transactions: AccountTransaction[];
@@ -35,16 +37,27 @@ const formatNumber = (value: number | string): string => {
 };
 
 const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({ 
-  accounts, brokers, trades, transactions, setTransactions, setCurrentScreen, bankAccounts, stocks, stockPrices, historicalGains, feeSettings
+  accounts, setAccounts, brokers, trades, transactions, setTransactions, setCurrentScreen, bankAccounts, stocks, stockPrices, historicalGains, feeSettings
 }) => {
   const brokerMap = useMemo(() => new Map((brokers || []).map(b => [b.id, b.name])), [brokers]);
   const stockMap = useMemo(() => new Map((stocks || []).map(s => [s.id, s])), [stocks]);
   const securityAccountIds = useMemo(() => new Set((accounts || []).map(a => a.id)), [accounts]);
-  
+
+  // Sorted accounts based on account.order if specified, otherwise preserving current array sequence
+  const sortedAccounts = useMemo(() => {
+    return [...(accounts || [])].sort((a, b) => {
+      const orderA = typeof a.order === 'number' ? a.order : 999999;
+      const orderB = typeof b.order === 'number' ? b.order : 999999;
+      if (orderA !== orderB) return orderA - orderB;
+      return 0;
+    });
+  }, [accounts]);
+
+  const [isReorderModalOpen, setIsReorderModalOpen] = useState(false);
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [newTransaction, setNewTransaction] = useState<Omit<AccountTransaction, 'id'>>({
     date: new Date().toISOString().split('T')[0],
-    accountId: (accounts || [])[0]?.id || '',
+    accountId: (sortedAccounts || [])[0]?.id || '',
     amount: 0,
     transactionType: TransactionType.Deposit,
     counterpartyAccountId: undefined,
@@ -58,10 +71,32 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
     setExpandedAccountId(prevId => (prevId === accountId ? null : accountId));
   };
 
+  const handleSaveOrder = (newAccounts: Account[]) => {
+    if (setAccounts) {
+      setAccounts(newAccounts);
+    }
+  };
+
+  const handleQuickMove = (index: number, direction: -1 | 1) => {
+    if (!setAccounts) return;
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= sortedAccounts.length) return;
+
+    const newAccounts = [...sortedAccounts];
+    const temp = newAccounts[index];
+    newAccounts[index] = newAccounts[targetIndex];
+    newAccounts[targetIndex] = temp;
+
+    const withOrder = newAccounts.map((acc, idx) => ({
+      ...acc,
+      order: idx + 1,
+    }));
+    setAccounts(withOrder);
+  };
 
   const accountDetails = useMemo(() => {
     const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
-    return (accounts || []).map(account => {
+    return sortedAccounts.map(account => {
       const accountTrades = (trades || [])
         .filter(t => t.accountId === account.id)
         .sort((a, b) => {
@@ -170,7 +205,15 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
         holdings: detailedHoldings,
       };
     });
-  }, [accounts, brokers, trades, transactions, stocks, stockPrices, brokerMap, stockMap, historicalGains, securityAccountIds]);
+  }, [sortedAccounts, brokers, trades, transactions, stocks, stockPrices, brokerMap, stockMap, historicalGains, securityAccountIds, feeSettings]);
+
+  const accountValuesMap = useMemo(() => {
+    const map: { [id: string]: number } = {};
+    (accountDetails || []).forEach(acc => {
+      map[acc.id] = acc.totalValue;
+    });
+    return map;
+  }, [accountDetails]);
   
   const totalSummary = useMemo(() => {
     const summary = {
@@ -236,11 +279,28 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
   return (
     <div className="space-y-6">
       <Card>
-        <div className="flex flex-col sm:flex-row gap-4 justify-end">
-          <Button onClick={() => setIsTxModalOpen(true)}>입출금 기록</Button>
-          <Button onClick={() => setCurrentScreen(Screen.AccountTransactions)} variant="secondary">
-            입출금 히스토리
-          </Button>
+        <div className="flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-light-text dark:text-dark-text">
+              등록 계좌 ({accountDetails.length}개)
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2.5 items-center justify-end">
+            {setAccounts && (
+              <Button 
+                onClick={() => setIsReorderModalOpen(true)} 
+                variant="secondary"
+                className="flex items-center gap-1.5 text-xs sm:text-sm"
+              >
+                <ArrowsUpDownIcon className="w-4 h-4 text-blue-500" />
+                <span>계좌 순서 변경</span>
+              </Button>
+            )}
+            <Button onClick={() => setIsTxModalOpen(true)}>입출금 기록</Button>
+            <Button onClick={() => setCurrentScreen(Screen.AccountTransactions)} variant="secondary">
+              입출금 히스토리
+            </Button>
+          </div>
         </div>
       </Card>
       
@@ -276,7 +336,7 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {accountDetails.map(account => (
+            {accountDetails.map((account, index) => (
                 <Card key={account.id} className="p-0 overflow-hidden flex flex-col justify-between shadow-lg">
                     <div 
                       className="p-4 sm:p-5 bg-gradient-to-br from-blue-50 to-white dark:from-slate-800/70 dark:to-dark-card cursor-pointer"
@@ -284,15 +344,64 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
                     >
                         <div className="flex justify-between items-start">
                           <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-light-card dark:bg-dark-card rounded-lg shadow">
-                                <IdentificationIcon className="w-6 h-6 text-blue-500" />
+                            <div className="relative shrink-0">
+                              <div className="p-2 bg-light-card dark:bg-dark-card rounded-lg shadow">
+                                  <IdentificationIcon className="w-6 h-6 text-blue-500" />
+                              </div>
+                              <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shadow-xs">
+                                {index + 1}
+                              </span>
                             </div>
                             <div>
-                              <h3 className="text-lg font-bold text-light-text dark:text-dark-text">{account.name}</h3>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h3 className="text-lg font-bold text-light-text dark:text-dark-text">{account.name}</h3>
+                                {account.accountType && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                                    {account.accountType}
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-sm text-light-secondary dark:text-dark-secondary">{account.brokerName}</p>
                             </div>
                           </div>
-                          {expandedAccountId === account.id ? <ChevronUpIcon className="w-6 h-6"/> : <ChevronDownIcon className="w-6 h-6"/>}
+                          <div className="flex items-center gap-1.5">
+                            {setAccounts && (
+                              <div className="flex items-center bg-white/90 dark:bg-slate-800/90 rounded-lg p-0.5 border border-gray-200/80 dark:border-slate-700/80 shadow-2xs" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleQuickMove(index, -1);
+                                  }}
+                                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent text-light-text dark:text-dark-text cursor-pointer disabled:cursor-not-allowed"
+                                  title="계좌 한 칸 위로"
+                                >
+                                  <ChevronUpIcon className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={index === accountDetails.length - 1}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleQuickMove(index, 1);
+                                  }}
+                                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent text-light-text dark:text-dark-text cursor-pointer disabled:cursor-not-allowed"
+                                  title="계좌 한 칸 아래로"
+                                >
+                                  <ChevronDownIcon className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleExpand(account.id)}
+                              className="p-1 rounded-lg text-light-secondary dark:text-dark-secondary hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer"
+                              title="상세 펼치기/접기"
+                            >
+                              {expandedAccountId === account.id ? <ChevronUpIcon className="w-5 h-5"/> : <ChevronDownIcon className="w-5 h-5"/>}
+                            </button>
+                          </div>
                         </div>
                         
                         <p className="text-xs font-medium text-light-secondary dark:text-dark-secondary">총 평가금액</p>
@@ -422,6 +531,15 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
           }}
         />
       )}
+
+      <AccountOrderModal
+        isOpen={isReorderModalOpen}
+        onClose={() => setIsReorderModalOpen(false)}
+        accounts={sortedAccounts}
+        brokers={brokers}
+        accountValues={accountValuesMap}
+        onSaveOrder={handleSaveOrder}
+      />
     </div>
   );
 };

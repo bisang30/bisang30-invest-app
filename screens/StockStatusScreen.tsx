@@ -198,7 +198,7 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
         .map(category => ({ category, data: grouped[category] }))
         .filter(item => item.data);
 
-  }, [trades, stockMap, stockPrices, initialPortfolio, totalCashBalance, stocks, feeSettings]);
+  }, [trades, stockMap, stockPrices, initialPortfolio, totalCashBalance, effectiveCashBalance, stocks, feeSettings]);
 
   const toggleCategory = (category: string) => {
     setExpandedCategories(prev => {
@@ -226,6 +226,12 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
             const visual = categoryVisuals[category as PortfolioCategory];
             const Icon = visual?.icon;
 
+            const isCashCategory = category === PortfolioCategory.Cash;
+            const cashStockItem = isCashCategory ? data.stocks.find(s => s.ticker === 'CASH' || s.id === 'stock-cash-balance') : null;
+            const cashOnlyValue = cashStockItem?.currentValue ?? effectiveCashBalance;
+            const etfStocks = isCashCategory ? data.stocks.filter(s => s.ticker !== 'CASH' && s.id !== 'stock-cash-balance') : [];
+            const etfCashValue = etfStocks.reduce((sum, s) => sum + s.currentValue, 0);
+
             return (
                 <Card key={category} className="p-0 overflow-hidden">
                     <div 
@@ -241,12 +247,26 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
                                 </div>
                             )}
                             <div>
-                                <h2 className="text-xl font-bold text-light-text dark:text-dark-text">
-                                  {category === PortfolioCategory.Cash ? '현금성 (현금형)' : category}
-                                </h2>
-                                <p className="text-sm text-light-secondary dark:text-dark-secondary">
-                                    평가금액: {formatCurrency(data.totalValue)}
-                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h2 className="text-xl font-bold text-light-text dark:text-dark-text">
+                                    {isCashCategory ? '현금성자산 (현금형)' : category}
+                                  </h2>
+                                  {isCashCategory && etfCashValue > 0 && (
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-medium">
+                                      예수금 + 현금성 ETF
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-sm text-light-secondary dark:text-dark-secondary flex flex-wrap items-center gap-x-2 mt-0.5">
+                                    <span>
+                                      총 평가금액: <strong className="text-light-text dark:text-dark-text font-semibold">{formatCurrency(data.totalValue)}</strong>
+                                    </span>
+                                    {isCashCategory && etfCashValue > 0 && (
+                                      <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                        (계좌 예수금 {formatCurrency(cashOnlyValue)} + 현금형 ETF {formatCurrency(etfCashValue)})
+                                      </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <div className="flex items-center">
@@ -256,6 +276,20 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
                     </div>
                     {isExpanded && (
                         <div id={`category-content-${category}`} className="px-4 pb-4 space-y-3 border-t border-gray-200/80 dark:border-slate-700">
+                           {isCashCategory && etfCashValue > 0 && (
+                             <div className="mt-3 p-3 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 rounded-lg text-xs text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
+                               <BanknotesIcon className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                               <div className="space-y-1">
+                                 <p className="font-semibold text-blue-950 dark:text-blue-100">
+                                   [계좌현황 예수금과 종목현황 현금성자산의 차이 안내]
+                                 </p>
+                                 <p className="text-blue-800 dark:text-blue-300 leading-relaxed">
+                                   계좌현황의 <strong>총 예수금({formatCurrency(cashOnlyValue)})</strong>은 아래 <strong>[예수금 (원화/외화)]</strong> 항목에 정확히 100% 동일하게 반영되어 있습니다.
+                                   현재 보고 계신 <strong>현금성자산(현금형) 총액({formatCurrency(data.totalValue)})</strong>은 이 순수 예수금에 회원님이 보유하신 <strong>현금성 ETF {etfStocks.length}종목({formatCurrency(etfCashValue)})</strong>이 합산된 자산군 총 평가금액입니다.
+                                 </p>
+                               </div>
+                             </div>
+                           )}
                            {data.stocks.map((holding) => {
                                 const isCashItem = holding.ticker === 'CASH' || holding.id === 'stock-cash-balance';
                                 return (

@@ -247,6 +247,9 @@ interface IndexScreenProps {
   user: User | null;
   feeSettings: FeeSettings;
   setFeeSettings: React.Dispatch<React.SetStateAction<FeeSettings>>;
+  onSyncFromCloud?: () => Promise<void>;
+  onBackupToCloud?: () => Promise<void>;
+  onLogin?: () => void;
 }
 
 interface SettingsSectionProps {
@@ -307,6 +310,9 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   user,
   feeSettings,
   setFeeSettings,
+  onSyncFromCloud,
+  onBackupToCloud,
+  onLogin,
 }) => {
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState('');
@@ -392,6 +398,31 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   }, [backgroundFetchInterval]);
 
   const brokerMap = useMemo(() => new Map((brokers || []).map(b => [b.id, b.name])), [brokers]);
+
+  const sortedAccounts = useMemo(() => {
+    return [...(accounts || [])].sort((a, b) => {
+      const orderA = typeof a.order === 'number' ? a.order : 999999;
+      const orderB = typeof b.order === 'number' ? b.order : 999999;
+      if (orderA !== orderB) return orderA - orderB;
+      return 0;
+    });
+  }, [accounts]);
+
+  const handleMoveAccount = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sortedAccounts.length) return;
+
+    const newAccounts = [...sortedAccounts];
+    const temp = newAccounts[index];
+    newAccounts[index] = newAccounts[targetIndex];
+    newAccounts[targetIndex] = temp;
+
+    const withOrder = newAccounts.map((acc, idx) => ({
+      ...acc,
+      order: idx + 1,
+    }));
+    setAccounts(withOrder);
+  };
   const portfolioStocks = useMemo(() => {
     const list = (stocks || []).filter(s => s.isPortfolio);
     if (!list.some(s => s.id === 'stock-cash-balance' || s.ticker === 'CASH')) {
@@ -528,7 +559,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
       if (editingAccount) {
         setAccounts(prev => (prev || []).map(a => a.id === editingAccount.id ? { ...a, ...accountForm } : a));
       } else {
-        setAccounts(prev => [...(prev || []), { ...accountForm, id: Date.now().toString() }]);
+        const nextOrder = (accounts || []).length + 1;
+        setAccounts(prev => [...(prev || []), { ...accountForm, id: Date.now().toString(), order: nextOrder }]);
       }
       closeAccountModal();
     } else {
@@ -1537,14 +1569,20 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                         )}
                         {section.id === 'accounts' && (
                            <>
-                              <div className="flex justify-end mb-4">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+                                <p className="text-xs text-light-secondary dark:text-dark-secondary">
+                                  ▲ / ▼ 버튼으로 계좌화면에 표시될 계좌 노출 순서를 정할 수 있습니다.
+                                </p>
                                 <Button onClick={() => openAccountModal(null)}>계좌 추가</Button>
                               </div>
                               <ul className="mt-4 space-y-2">
-                                {(accounts || []).length === 0 ? <p className="text-center text-sm text-light-secondary dark:text-dark-secondary">등록된 계좌가 없습니다.</p> :
-                                  (accounts || []).map(a => (
-                                    <li key={a.id} className="flex justify-between items-center p-2 bg-gray-100 dark:bg-slate-900/50 rounded animate-fade-in">
+                                {(sortedAccounts || []).length === 0 ? <p className="text-center text-sm text-light-secondary dark:text-dark-secondary">등록된 계좌가 없습니다.</p> :
+                                  (sortedAccounts || []).map((a, idx) => (
+                                    <li key={a.id} className="flex justify-between items-center p-2.5 bg-gray-100 dark:bg-slate-900/50 rounded-lg animate-fade-in border border-gray-200/50 dark:border-slate-800">
                                       <span className="flex flex-wrap items-center gap-2">
+                                        <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 text-[11px] font-bold flex items-center justify-center shrink-0">
+                                          {idx + 1}
+                                        </span>
                                         <span className="font-semibold text-light-text dark:text-dark-text">{a.name}</span>
                                         <span className="text-xs text-light-secondary dark:text-dark-secondary">({brokerMap.get(a.brokerId) || '알 수 없는 증권사'})</span>
                                         {a.accountType && (
@@ -1558,7 +1596,27 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                           </span>
                                         )}
                                       </span>
-                                      <div className="flex gap-2">
+                                      <div className="flex gap-1.5 items-center shrink-0">
+                                        <div className="flex items-center bg-white dark:bg-slate-800 rounded p-0.5 border border-gray-200 dark:border-slate-700 mr-1 shadow-2xs">
+                                          <button
+                                            type="button"
+                                            disabled={idx === 0}
+                                            onClick={() => handleMoveAccount(idx, 'up')}
+                                            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed text-light-text dark:text-dark-text cursor-pointer"
+                                            title="계좌 위로 이동"
+                                          >
+                                            <ChevronUpIcon className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={idx === (sortedAccounts || []).length - 1}
+                                            onClick={() => handleMoveAccount(idx, 'down')}
+                                            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed text-light-text dark:text-dark-text cursor-pointer"
+                                            title="계좌 아래로 이동"
+                                          >
+                                            <ChevronDownIcon className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
                                         <Button onClick={() => openAccountModal(a)} variant="secondary" className="px-2 py-1 text-xs">수정</Button>
                                         <Button onClick={() => handleDeleteAccount(a.id)} className="px-2 py-1 text-xs bg-loss text-white hover:bg-red-700 focus:ring-red-500">삭제</Button>
                                       </div>
@@ -1566,7 +1624,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                                   ))
                                 }
                               </ul>
-                            </>
+                           </>
                         )}
                         {section.id === 'fees' && (
                             <div className="space-y-6">
@@ -2513,22 +2571,90 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
                             </div>
                         )}
                         {section.id === 'data' && (
-                             <>
-                              <div className="flex flex-wrap gap-4">
-                                <Button onClick={handleImportClick} variant="secondary">엑셀에서 불러오기</Button>
-                                <Button onClick={handleExportAllData} variant="secondary">전체 데이터 엑셀로 내보내기</Button>
-                                 <input
-                                    type="file"
-                                    ref={importFileInputRef}
-                                    onChange={handleImportFileChange}
-                                    accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    className="hidden"
-                                />
-                              </div>
-                              <p className="text-sm mt-4 text-light-secondary dark:text-dark-secondary">
-                                  모든 데이터를 하나의 엑셀 파일로 내보내거나, 템플릿에 맞는 엑셀 파일의 데이터를 앱으로 가져올 수 있습니다.
-                              </p>
-                            </>
+                             <div className="space-y-6">
+                               {/* 클라우드 실시간 동기화 및 백업 */}
+                               <div className="p-4 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-xl space-y-3">
+                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/60 dark:border-blue-800/40 pb-3">
+                                   <div>
+                                     <h3 className="text-sm font-bold text-blue-950 dark:text-blue-100 flex items-center gap-1.5">
+                                       <span>☁️</span> 클라우드 실시간 동기화 및 백업
+                                     </h3>
+                                     <p className="text-xs text-blue-800 dark:text-blue-300 mt-0.5">
+                                       PC와 스마트폰 간에 데이터를 실시간으로 동기화하거나 즉시 백업/복원합니다.
+                                     </p>
+                                   </div>
+                                   {user ? (
+                                     <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-950/60 px-2.5 py-1 rounded-full font-medium self-start sm:self-auto">
+                                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                       연결됨: {user.email}
+                                     </div>
+                                   ) : (
+                                     <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-100/80 dark:bg-amber-950/60 px-2.5 py-1 rounded-full font-medium self-start sm:self-auto">
+                                       비로그인 (게스트 모드)
+                                     </div>
+                                   )}
+                                 </div>
+
+                                 {user ? (
+                                   <div className="flex flex-wrap gap-2.5 pt-1">
+                                     {onSyncFromCloud && (
+                                       <Button 
+                                         onClick={onSyncFromCloud} 
+                                         variant="primary"
+                                         className="text-xs py-2 px-3 flex items-center gap-1.5"
+                                       >
+                                         <span>🔄</span> 클라우드 데이터 다시 불러오기 (동기화)
+                                       </Button>
+                                     )}
+                                     {onBackupToCloud && (
+                                       <Button 
+                                         onClick={onBackupToCloud} 
+                                         variant="secondary"
+                                         className="text-xs py-2 px-3 flex items-center gap-1.5"
+                                       >
+                                         <span>☁️</span> 현재 데이터 클라우드 즉시 백업
+                                       </Button>
+                                     )}
+                                   </div>
+                                 ) : (
+                                   <div className="space-y-2.5 pt-1">
+                                     <p className="text-xs text-amber-800 dark:text-amber-300">
+                                       ⚠️ 다른 기기(PC 등)의 데이터를 휴대폰으로 불러오려면 PC와 동일한 구글 계정 로그인이 필요합니다.
+                                     </p>
+                                     {onLogin && (
+                                       <Button 
+                                         onClick={onLogin} 
+                                         variant="primary"
+                                         className="text-xs py-2 px-3"
+                                       >
+                                         구글 계정으로 로그인
+                                       </Button>
+                                     )}
+                                   </div>
+                                 )}
+                               </div>
+
+                               {/* 파일 기반 엑셀 백업 / 가져오기 */}
+                               <div className="space-y-3 pt-2 border-t border-gray-200/80 dark:border-slate-700">
+                                 <h3 className="text-sm font-bold text-light-text dark:text-dark-text flex items-center gap-1.5">
+                                   <span>📁</span> 파일 기반 엑셀 백업 / 가져오기
+                                 </h3>
+                                 <div className="flex flex-wrap gap-3">
+                                   <Button onClick={handleImportClick} variant="secondary">엑셀에서 불러오기</Button>
+                                   <Button onClick={handleExportAllData} variant="secondary">전체 데이터 엑셀로 내보내기</Button>
+                                   <input
+                                      type="file"
+                                      ref={importFileInputRef}
+                                      onChange={handleImportFileChange}
+                                      accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                      className="hidden"
+                                   />
+                                 </div>
+                                 <p className="text-xs text-light-secondary dark:text-dark-secondary">
+                                     모든 데이터를 하나의 엑셀 파일로 내보내거나, 템플릿에 맞는 엑셀 파일의 데이터를 앱으로 가져올 수 있습니다.
+                                 </p>
+                               </div>
+                             </div>
                         )}
                         {section.id === 'password' && (
                              <div className="space-y-4">

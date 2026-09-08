@@ -279,7 +279,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     isSyncingRef.current = true;
     setIsDataOperationInProgress(true);
 
-    const withTimeout = <T,>(p: Promise<T>, ms = 5000): Promise<T> =>
+    const withTimeout = <T,>(p: Promise<T>, ms = 12000): Promise<T> =>
       Promise.race([
         p,
         new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), ms))
@@ -291,7 +291,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       // 1. Sync User Settings
       try {
         const userRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await withTimeout(getDoc(userRef), 4000);
+        const userSnap = await withTimeout(getDoc(userRef), 12000);
         if (userSnap.exists()) {
           const settings = userSnap.data();
           if (settings.initialPortfolio) setInitialPortfolio(settings.initialPortfolio);
@@ -320,7 +320,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         // Step A: Try appData document schema (JSON stringified payload)
         try {
           const appDataRef = doc(db, 'users', currentUser.uid, 'appData', colName);
-          const appDataSnap = await withTimeout(getDoc(appDataRef), 4000);
+          const appDataSnap = await withTimeout(getDoc(appDataRef), 12000);
           if (appDataSnap.exists() && appDataSnap.data()?.data) {
             const parsed = JSON.parse(appDataSnap.data().data);
             if (Array.isArray(parsed) && parsed.length > 0) {
@@ -336,7 +336,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         if (!cloudItems || cloudItems.length === 0) {
           try {
             const colRef = collection(db, 'users', currentUser.uid, colName);
-            const snap = await withTimeout(getDocs(colRef), 4000);
+            const snap = await withTimeout(getDocs(colRef), 12000);
             if (!snap.empty) {
               cloudItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
               console.log(`[Sync] Found ${cloudItems.length} items in subcollection '${colName}'`);
@@ -358,7 +358,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         if (colName === 'goals' && (!cloudItems || cloudItems.length === 0)) {
           try {
             const colRef = collection(db, 'users', currentUser.uid, 'investmentGoals');
-            const snap = await withTimeout(getDocs(colRef), 4000);
+            const snap = await withTimeout(getDocs(colRef), 12000);
             if (!snap.empty) {
               cloudItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
               console.log(`[Sync] Found ${cloudItems.length} items in subcollection 'investmentGoals'`);
@@ -1216,6 +1216,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       case Screen.AccountStatus:
         return <AccountStatusScreen 
           accounts={accounts} 
+          setAccounts={setAccounts}
           brokers={brokers} 
           trades={mainPortfolioTrades} 
           transactions={mainPortfolioTransactions} 
@@ -1298,6 +1299,9 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             user={user}
             feeSettings={feeSettings}
             setFeeSettings={setFeeSettings}
+            onSyncFromCloud={handleManualSyncFromCloud}
+            onBackupToCloud={handleManualBackupToCloud}
+            onLogin={handleGoogleLogin}
           />;
       case Screen.Menu:
         return <MenuScreen setCurrentScreen={navigateToScreen} />;
@@ -1357,6 +1361,27 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           onBackupToCloud={handleManualBackupToCloud}
           onLogout={handleLogout}
         />
+
+        {!user && !isAuthLoading && (
+          <div className="mb-4 p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shadow-sm">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <UserIcon className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <p className="font-semibold text-amber-950 dark:text-amber-100 text-sm">현재 비로그인(게스트) 상태입니다</p>
+                <p className="text-amber-800 dark:text-amber-300 mt-0.5">
+                  다른 PC에서 클라우드에 백업한 자료를 휴대폰으로 불러오려면 PC와 <strong>동일한 구글 계정으로 로그인</strong>해 주세요.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleGoogleLogin}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs shrink-0 shadow-sm transition-colors cursor-pointer self-end sm:self-auto"
+            >
+              구글 로그인
+            </button>
+          </div>
+        )}
+
         <main key={currentScreen} className={animationClass}>
           {renderScreen()}
         </main>

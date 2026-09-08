@@ -55,6 +55,7 @@ export interface Account {
   brokerId: string;
   accountType?: '일반' | '연금저축' | 'IRP' | 'ISA' | '퇴직DC';
   isTaxFree?: boolean;
+  order?: number;
 }
 
 export interface BankAccount {
