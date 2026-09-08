@@ -27,11 +27,16 @@ export const fetchStockPrices = async (tickers: string[]): Promise<FetchStockPri
     }
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch('/api/stock-prices', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tickers: validTickers })
+            body: JSON.stringify({ tickers: validTickers }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             throw new Error(`API error: ${response.status}`);
@@ -40,7 +45,7 @@ export const fetchStockPrices = async (tickers: string[]): Promise<FetchStockPri
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
             const text = await response.text();
-            console.error("Expected JSON but received:", text.substring(0, 100));
+            console.warn("Expected JSON but received:", text.substring(0, 100));
             throw new Error("서버에서 올바른 형식(JSON)의 데이터를 보내지 않았습니다.");
         }
 
@@ -50,7 +55,7 @@ export const fetchStockPrices = async (tickers: string[]): Promise<FetchStockPri
             errors: { ...validationErrors, ...(data.errors || {}) }
         };
     } catch (error) {
-        console.error("Failed to fetch stock prices:", error);
+        console.warn("Failed to fetch stock prices (will be retried):", error);
         const fallbackErrors: Record<string, string> = { ...validationErrors };
         validTickers.forEach(t => fallbackErrors[t] = 'Server error');
         return { prices: {}, errors: fallbackErrors };

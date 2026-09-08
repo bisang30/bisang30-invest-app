@@ -24,7 +24,7 @@ import { exportAllData } from './services/exportService';
 import { calculateAccountCashBalance } from './services/feeService';
 import { PORTFOLIO_CATEGORIES, DATA_VERSION } from './constants';
 import { auth, db, signInWithGoogle, handleFirestoreError, OperationType } from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { UserIcon } from './components/Icons';
 
@@ -226,7 +226,7 @@ const useAutoSave = (key: string, data: any, user: any, isInitialSyncDone: boole
       try {
         await setDoc(doc(db, path), { data: JSON.stringify(data) });
       } catch (e) {
-        handleFirestoreError(e, OperationType.WRITE, path);
+        console.warn(`[AutoSave] Error saving ${key} to Firestore:`, e);
       }
     }, 2000);
     
@@ -266,8 +266,172 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   const [retirementGoal, setRetirementGoal] = useLocalStorage<RetirementGoal | null>('retirementGoal', null);
   const [feeSettings, setFeeSettings] = useLocalStorage<FeeSettings>('feeSettings', DEFAULT_FEE_SETTINGS);
 
-
   const [animationClass, setAnimationClass] = useState('');
+  const isSyncingRef = useRef(false);
+  const syncedUserUidRef = useRef<string | null>(null);
+
+  // Comprehensive Firestore <-> Local data synchronization
+  const syncDataWithFirestore = useCallback(async (currentUser: User, isManualTrigger = false) => {
+    if (isSyncingRef.current) {
+      console.log("[Sync] Sync already in progress, skipping duplicate call.");
+      return;
+    }
+    isSyncingRef.current = true;
+    setIsDataOperationInProgress(true);
+
+    const withTimeout = <T,>(p: Promise<T>, ms = 5000): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), ms))
+      ]);
+
+    try {
+      console.log(`[Sync] Starting sync for user: ${currentUser.uid} (${currentUser.email})`);
+
+      // 1. Sync User Settings
+      try {
+        const userRef = doc(db, 'users', currentUser.uid);
+        const userSnap = await withTimeout(getDoc(userRef), 4000);
+        if (userSnap.exists()) {
+          const settings = userSnap.data();
+          if (settings.initialPortfolio) setInitialPortfolio(settings.initialPortfolio);
+          if (settings.alertThresholds) setAlertThresholds(settings.alertThresholds);
+          if (settings.backgroundFetchInterval) setBackgroundFetchInterval(settings.backgroundFetchInterval);
+          if (settings.showSummary !== undefined) setShowSummary(settings.showSummary);
+          if (settings.theme) setTheme(settings.theme);
+          if (settings.homeScreenPreference) setHomeScreenPreference(settings.homeScreenPreference);
+          if (settings.retirementGoal) setRetirementGoal(settings.retirementGoal);
+          if (settings.password) setPassword(settings.password);
+          if (settings.feeSettings) setFeeSettings(settings.feeSettings);
+        }
+      } catch (err) {
+        console.warn("[Sync] Error loading user settings document:", err);
+      }
+
+      // Helper to sync an individual collection
+      const syncCollection = async (
+        colName: string,
+        setter: (items: any) => void,
+        localKey: string,
+        altLocalKey?: string
+      ): Promise<{ name: string; count: number; source: string }> => {
+        let cloudItems: any[] | null = null;
+
+        // Step A: Try appData document schema (JSON stringified payload)
+        try {
+          const appDataRef = doc(db, 'users', currentUser.uid, 'appData', colName);
+          const appDataSnap = await withTimeout(getDoc(appDataRef), 4000);
+          if (appDataSnap.exists() && appDataSnap.data()?.data) {
+            const parsed = JSON.parse(appDataSnap.data().data);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              cloudItems = parsed;
+              console.log(`[Sync] Found ${cloudItems.length} items in appData/${colName}`);
+            }
+          }
+        } catch (e) {
+          console.warn(`[Sync] Failed to read appData/${colName}:`, e);
+        }
+
+        // Step B: If appData had 0 items, check subcollection schema
+        if (!cloudItems || cloudItems.length === 0) {
+          try {
+            const colRef = collection(db, 'users', currentUser.uid, colName);
+            const snap = await withTimeout(getDocs(colRef), 4000);
+            if (!snap.empty) {
+              cloudItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              console.log(`[Sync] Found ${cloudItems.length} items in subcollection '${colName}'`);
+              
+              // Cache to appData for faster future reads
+              try {
+                const appDataRef = doc(db, 'users', currentUser.uid, 'appData', colName);
+                await setDoc(appDataRef, { data: JSON.stringify(cloudItems) });
+              } catch (cacheErr) {
+                console.warn(`[Sync] Failed to cache '${colName}' to appData:`, cacheErr);
+              }
+            }
+          } catch (e) {
+            console.warn(`[Sync] Failed to read subcollection '${colName}':`, e);
+          }
+        }
+
+        // Step C: If 'goals', also check 'investmentGoals' subcollection
+        if (colName === 'goals' && (!cloudItems || cloudItems.length === 0)) {
+          try {
+            const colRef = collection(db, 'users', currentUser.uid, 'investmentGoals');
+            const snap = await withTimeout(getDocs(colRef), 4000);
+            if (!snap.empty) {
+              cloudItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              console.log(`[Sync] Found ${cloudItems.length} items in subcollection 'investmentGoals'`);
+            }
+          } catch (e) { /* ignore */ }
+        }
+
+        // Step D: Local fallback & safety check against overwriting with empty array
+        const rawLocal = localStorage.getItem(localKey) || (altLocalKey ? localStorage.getItem(altLocalKey) : null);
+        let localItems: any[] = [];
+        try {
+          if (rawLocal) {
+            const parsedLocal = JSON.parse(rawLocal);
+            if (Array.isArray(parsedLocal)) localItems = parsedLocal;
+          }
+        } catch (e) { /* ignore */ }
+
+        if (cloudItems && cloudItems.length > 0) {
+          setter(cloudItems);
+          return { name: colName, count: cloudItems.length, source: 'cloud' };
+        } else if (localItems.length > 0) {
+          // Cloud has no data for this collection, but local storage has data!
+          // NEVER wipe local data! Upload local data to cloud so it's safely backed up:
+          console.log(`[Sync] Cloud empty for '${colName}', preserving ${localItems.length} local items & uploading to cloud`);
+          try {
+            const appDataRef = doc(db, 'users', currentUser.uid, 'appData', colName);
+            await setDoc(appDataRef, { data: JSON.stringify(localItems) });
+          } catch (uploadErr) {
+            console.warn(`[Sync] Failed to upload local '${colName}' to cloud:`, uploadErr);
+          }
+          return { name: colName, count: localItems.length, source: 'local' };
+        }
+
+        return { name: colName, count: 0, source: 'empty' };
+      };
+
+      const results = await Promise.allSettled([
+        syncCollection('brokers', setBrokers, 'brokers'),
+        syncCollection('accounts', setAccounts, 'accounts'),
+        syncCollection('bankAccounts', setBankAccounts, 'bankAccounts'),
+        syncCollection('stocks', setStocks, 'stocks'),
+        syncCollection('trades', setTrades, 'trades'),
+        syncCollection('transactions', setTransactions, 'transactions'),
+        syncCollection('goals', setInvestmentGoals, 'investmentGoals', 'goals'),
+        syncCollection('monthlyValues', setMonthlyValues, 'monthlyValues'),
+        syncCollection('historicalGains', setHistoricalGains, 'historicalGains'),
+      ]);
+
+      if (isManualTrigger) {
+        const counts: Record<string, number> = {};
+        results.forEach(res => {
+          if (res.status === 'fulfilled') {
+            counts[res.value.name] = res.value.count;
+          }
+        });
+        alert(`클라우드 동기화 완료!\n- 보유종목: ${counts['stocks'] || 0}건\n- 매매기록: ${counts['trades'] || 0}건\n- 증권계좌: ${counts['accounts'] || 0}건\n- 입출금: ${counts['transactions'] || 0}건\n- 확정손익: ${counts['historicalGains'] || 0}건`);
+      }
+    } catch (error) {
+      console.error("[Sync] Error syncing from Firestore:", error);
+      if (isManualTrigger) {
+        alert("클라우드 동기화 중 오류가 발생했습니다. 콘솔 로그를 확인해 주세요.");
+      }
+    } finally {
+      setIsDataOperationInProgress(false);
+      setIsInitialSyncDone(true);
+      isSyncingRef.current = false;
+    }
+  }, [setBrokers, setAccounts, setBankAccounts, setStocks, setTrades, setTransactions, setInvestmentGoals, setMonthlyValues, setHistoricalGains, setInitialPortfolio, setAlertThresholds, setBackgroundFetchInterval, setShowSummary, setTheme, setHomeScreenPreference, setRetirementGoal, setPassword, setFeeSettings]);
+
+  const syncRef = useRef(syncDataWithFirestore);
+  useEffect(() => {
+    syncRef.current = syncDataWithFirestore;
+  }, [syncDataWithFirestore]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -275,58 +439,13 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       setIsAuthLoading(false);
       
       if (currentUser) {
-        // Sync data from Firestore to LocalStorage on login
-        setIsDataOperationInProgress(true);
-        try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-          
-          if (userSnap.exists()) {
-            const settings = userSnap.data();
-            if (settings.initialPortfolio) setInitialPortfolio(settings.initialPortfolio);
-            if (settings.alertThresholds) setAlertThresholds(settings.alertThresholds);
-            if (settings.backgroundFetchInterval) setBackgroundFetchInterval(settings.backgroundFetchInterval);
-            if (settings.showSummary) setShowSummary(settings.showSummary);
-            if (settings.theme) setTheme(settings.theme);
-            if (settings.homeScreenPreference) setHomeScreenPreference(settings.homeScreenPreference);
-            if (settings.retirementGoal) setRetirementGoal(settings.retirementGoal);
-            if (settings.password) setPassword(settings.password);
-            if (settings.feeSettings) setFeeSettings(settings.feeSettings);
-          }
-
-          const syncCollection = async (colName: string, setter: any) => {
-            // 1. Try new appData document schema
-            const appDataRef = doc(db, 'users', currentUser.uid, 'appData', colName);
-            const appDataSnap = await getDoc(appDataRef);
-            if (appDataSnap.exists() && appDataSnap.data().data) {
-              setter(JSON.parse(appDataSnap.data().data));
-              return;
-            }
-
-            // 2. Fallback to old collection schema
-            const colRef = collection(db, 'users', currentUser.uid, colName);
-            const snap = await getDocs(colRef);
-            const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            if (data.length > 0) setter(data);
-          };
-
-          await Promise.all([
-            syncCollection('brokers', setBrokers),
-            syncCollection('accounts', setAccounts),
-            syncCollection('bankAccounts', setBankAccounts),
-            syncCollection('stocks', setStocks),
-            syncCollection('trades', setTrades),
-            syncCollection('transactions', setTransactions),
-            syncCollection('goals', setInvestmentGoals),
-            syncCollection('monthlyValues', setMonthlyValues),
-            syncCollection('historicalGains', setHistoricalGains),
-          ]);
-        } catch (error) {
-          console.error("Error syncing from Firestore:", error);
-        } finally {
-          setIsDataOperationInProgress(false);
-          setIsInitialSyncDone(true);
+        if (syncedUserUidRef.current !== currentUser.uid) {
+          syncedUserUidRef.current = currentUser.uid;
+          await syncRef.current(currentUser);
         }
+      } else {
+        syncedUserUidRef.current = null;
+        setIsInitialSyncDone(false);
       }
     });
     return () => unsubscribe();
@@ -350,6 +469,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       const path = `users/${user.uid}`;
       try {
         await setDoc(doc(db, path), {
+          email: user.email,
           initialPortfolio,
           alertThresholds,
           backgroundFetchInterval,
@@ -361,7 +481,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           feeSettings
         }, { merge: true });
       } catch (e) {
-        handleFirestoreError(e, OperationType.WRITE, path);
+        console.warn(`[AutoSave] Error saving settings to Firestore:`, e);
       }
     }, 2000);
     return () => clearTimeout(timeout);
@@ -373,18 +493,83 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
     } catch (error: any) {
       console.error("Login Error:", error);
       let message = '로그인에 실패했습니다.';
-      if (error.code === 'auth/unauthorized-domain') {
-        message = '승인되지 않은 도메인입니다. Firebase 콘솔에서 현재 도메인을 승인된 도메인 목록에 추가해야 합니다.';
-      } else if (error.code === 'auth/popup-blocked') {
-        message = '팝업이 차단되었습니다. 브라우저 설정에서 팝업을 허용해 주세요.';
-      } else if (error.code === 'auth/cancelled-popup-request') {
-        message = '로그인 창이 닫혔습니다.';
-      } else {
-        message = `로그인 오류: ${error.message || error.code || '알 수 없는 오류'}`;
+      if (error?.code === 'auth/popup-blocked') {
+        message = '팝업이 차단되었습니다. 브라우저 설정에서 팝업을 허용해주세요.';
+      } else if (error?.code === 'auth/popup-closed-by-user') {
+        message = '로그인 창이 닫혔습니다. 다시 시도해주세요.';
       }
       alert(message);
     }
   };
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      syncedUserUidRef.current = null;
+      setIsInitialSyncDone(false);
+      alert("로그아웃되었습니다.");
+    } catch (error) {
+      console.error("Logout Error:", error);
+    }
+  }, []);
+
+  const handleManualSyncFromCloud = useCallback(async () => {
+    if (!user) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+    await syncDataWithFirestore(user, true);
+  }, [user, syncDataWithFirestore]);
+
+  const handleManualBackupToCloud = useCallback(async () => {
+    if (!user) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+    setIsDataOperationInProgress(true);
+    try {
+      const collectionsToBackup = [
+        { name: 'brokers', data: brokers },
+        { name: 'accounts', data: accounts },
+        { name: 'bankAccounts', data: bankAccounts },
+        { name: 'stocks', data: stocks },
+        { name: 'trades', data: trades },
+        { name: 'transactions', data: transactions },
+        { name: 'goals', data: investmentGoals },
+        { name: 'monthlyValues', data: monthlyValues },
+        { name: 'historicalGains', data: historicalGains },
+      ];
+
+      await Promise.all(
+        collectionsToBackup.map(item =>
+          setDoc(doc(db, 'users', user.uid, 'appData', item.name), {
+            data: JSON.stringify(item.data || [])
+          })
+        )
+      );
+
+      await setDoc(doc(db, 'users', user.uid), {
+        email: user.email,
+        initialPortfolio,
+        alertThresholds,
+        backgroundFetchInterval,
+        showSummary,
+        theme,
+        homeScreenPreference,
+        retirementGoal,
+        password,
+        feeSettings
+      }, { merge: true });
+
+      alert("현재 데이터가 클라우드에 안전하게 백업되었습니다.");
+    } catch (e) {
+      console.error("[Backup] Error backing up data:", e);
+      alert("클라우드 백업 중 오류가 발생했습니다.");
+    } finally {
+      setIsDataOperationInProgress(false);
+    }
+  }, [user, brokers, accounts, bankAccounts, stocks, trades, transactions, investmentGoals, monthlyValues, historicalGains, initialPortfolio, alertThresholds, backgroundFetchInterval, showSummary, theme, homeScreenPreference, retirementGoal, password, feeSettings]);
 
   const handleManualRefresh = async () => {
     if (isRefreshing) return;
@@ -501,7 +686,18 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
   useEffect(() => {
     const hasLaunchedBefore = localStorage.getItem('has_launched_before');
     if (!hasLaunchedBefore) {
-        console.log("First launch detected. Clearing default data.");
+      const existingTrades = localStorage.getItem('trades');
+      const existingAccounts = localStorage.getItem('accounts');
+      const existingStocks = localStorage.getItem('stocks');
+      const existingTransactions = localStorage.getItem('transactions');
+      
+      const hasData = (existingTrades && existingTrades !== '[]') ||
+                      (existingAccounts && existingAccounts !== '[]') ||
+                      (existingStocks && existingStocks !== '[]') ||
+                      (existingTransactions && existingTransactions !== '[]');
+
+      if (!hasData) {
+        console.log("First launch detected with no existing data. Clearing default template data.");
         setBrokers([]);
         setAccounts([]);
         setStocks([]);
@@ -512,7 +708,10 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
         setMonthlyValues([]);
         setHistoricalGains([]);
         setInvestmentGoals([]);
-        localStorage.setItem('has_launched_before', 'true');
+      } else {
+        console.log("Existing local data detected on initial launch. Preserving user data.");
+      }
+      localStorage.setItem('has_launched_before', 'true');
     }
   }, [setBrokers, setAccounts, setStocks, setInitialPortfolio, setBankAccounts, setTrades, setTransactions, setMonthlyValues, setHistoricalGains, setInvestmentGoals]);
 
@@ -570,7 +769,7 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
       const isSuccess = Object.keys(newPrices).length > 0 || !hasErrors;
       return isSuccess;
     } catch (error) {
-      console.error('An unexpected error occurred during price fetch (will be retried):', error);
+      console.warn('An unexpected error occurred during price fetch (will be retried):', error);
       return false;
     }
   }, [tickersToFetch, setStockPrices]);
@@ -1154,6 +1353,9 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
           onLogin={handleGoogleLogin}
           onRefresh={handleManualRefresh}
           isRefreshing={isRefreshing}
+          onSyncFromCloud={handleManualSyncFromCloud}
+          onBackupToCloud={handleManualBackupToCloud}
+          onLogout={handleLogout}
         />
         <main key={currentScreen} className={animationClass}>
           {renderScreen()}
@@ -1165,6 +1367,13 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-light-primary dark:border-dark-primary mb-4"></div>
               <p className="text-light-text dark:text-dark-text font-semibold">데이터 처리 중...</p>
               <p className="text-sm text-light-secondary dark:text-dark-secondary mt-2">잠시만 기다려 주세요.</p>
+              <button
+                type="button"
+                onClick={() => setIsDataOperationInProgress(false)}
+                className="mt-4 px-3 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-md transition-colors"
+              >
+                닫기
+              </button>
             </div>
           </div>
         )}
