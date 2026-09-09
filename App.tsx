@@ -881,7 +881,10 @@ const App: React.FC<AppProps> = ({ onForceRemount }) => {
             backgroundFetchInterval,
             showSummary,
             investmentGoals,
-            `투자 관리 앱 전체 데이터_${new Date().toISOString().split('T')[0]}`
+            `투자 관리 앱 전체 데이터_${new Date().toISOString().split('T')[0]}`,
+            retirementGoal,
+            feeSettings,
+            homeScreenPreference
         );
     }
     setTimeout(() => {

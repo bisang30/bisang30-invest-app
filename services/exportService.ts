@@ -1,6 +1,70 @@
 import * as XLSX from 'xlsx';
-import { Broker, Account, BankAccount, Stock, InitialPortfolio, Trade, TradeType, AccountTransaction, TransactionType, MonthlyAccountValue, HistoricalGain, AlertThresholds, InvestmentGoal } from '../types';
+import { Broker, Account, BankAccount, Stock, InitialPortfolio, Trade, TradeType, AccountTransaction, TransactionType, MonthlyAccountValue, HistoricalGain, AlertThresholds, InvestmentGoal, RetirementGoal, FeeSettings } from '../types';
 
+/**
+ * Helper to resolve stock metadata (country, strategy, subCategory, and portfolio subGroup)
+ * ensuring full consistency across export sheets and UI groupings.
+ */
+export const resolveStockDetails = (stock: Stock) => {
+  let cat = stock.category || '주식형';
+  if (cat === '현금성자산' || cat === '현금성' || cat === '현금') cat = '현금성';
+  else if (cat === '대체(금)' || cat === '대체' || cat === '금') cat = '대체(금)';
+  else cat = '주식형';
+
+  let country = stock.country;
+  if (!country) {
+    const ticker = stock.ticker || '';
+    if (/^\d{6}$/.test(ticker)) country = '한국';
+    else country = '미국';
+  }
+
+  let strategy = stock.stockStrategy;
+  if (!strategy) {
+    if (cat === '현금성') {
+      strategy = '현금';
+    } else if (cat === '대체(금)') {
+      strategy = '금';
+    } else {
+      const name = stock.name || '';
+      const etfType = stock.etfType || '';
+      if (
+        etfType === '지수추종' ||
+        name.includes('S&P500') ||
+        name.includes('나스닥') ||
+        name.includes('200') ||
+        name.includes('지수') ||
+        name.includes('TR')
+      ) {
+        strategy = country === '미국' ? '지수추종' : '지수추종형';
+      } else {
+        strategy = '개별/섹터투자';
+      }
+    }
+  }
+
+  let subGroup = '주식형 - 기타';
+  if (cat === '현금성') {
+    subGroup = '현금성';
+  } else if (cat === '대체(금)') {
+    subGroup = '대체(금)';
+  } else if (country === '한국') {
+    subGroup = (strategy === '지수추종형' || strategy === '지수추종')
+      ? '주식형 - 한국 (지수추종형)'
+      : '주식형 - 한국 (개별/섹터투자)';
+  } else if (country === '미국') {
+    subGroup = (strategy === '지수추종' || strategy === '지수추종형')
+      ? '주식형 - 미국 (지수추종)'
+      : '주식형 - 미국 (개별/섹터투자)';
+  }
+
+  return {
+    country,
+    category: cat,
+    strategy,
+    subCategory: stock.subCategory || '',
+    subGroup,
+  };
+};
 
 /**
  * Takes an array of sheet objects, converts them to an Excel file with multiple sheets, and triggers a download.
@@ -86,7 +150,10 @@ export const exportAllData = (
   backgroundFetchInterval: number,
   showSummary: boolean,
   investmentGoals: InvestmentGoal[],
-  fileName: string
+  fileName: string,
+  retirementGoal?: RetirementGoal | null,
+  feeSettings?: FeeSettings,
+  homeScreenPreference?: string
 ) => {
     const sheets: { name: string, data: any[] }[] = [];
     const brokerMap = new Map((brokers || []).map(b => [b.id, b.name]));
@@ -119,17 +186,54 @@ export const exportAllData = (
     }
 
     sheets.push({ name: '증권사', data: (brokers || []).map(b => ({ '증권사명': b.name })) });
-    sheets.push({ name: '증권계좌', data: (accounts || []).map(a => ({ '계좌명': a.name, '증권사': brokerMap.get(a.brokerId) || 'N/A' })) });
+    sheets.push({ 
+      name: '증권계좌', 
+      data: (accounts || []).map((a, idx) => ({ 
+        '계좌명': a.name, 
+        '증권사': brokerMap.get(a.brokerId) || 'N/A',
+        '계좌유형': a.accountType || '일반',
+        '비과세/절세여부': a.isTaxFree ? '예' : '아니오',
+        '표시순서': a.order !== undefined ? a.order : (idx + 1)
+      })) 
+    });
     sheets.push({ name: '은행계좌', data: (bankAccounts || []).map(b => ({ '은행명': b.bankName, '계좌별명': b.name })) });
-    sheets.push({ name: '종목', data: (stocks || []).map(s => ({ 
-        '종목명': s.name, 
-        '티커': s.ticker, 
-        '카테고리': s.category, 
-        '포트폴리오 포함': s.isPortfolio ? '예' : '아니오',
-        'ETF 여부': s.isEtf ? '예' : '아니오',
-        '실부담비용률 (%)': s.isEtf ? s.expenseRatio : ''
-    })) });
-    sheets.push({ name: '포트폴리오', data: portfolioStocks.map(s => ({ '종목명': s.name, '티커': s.ticker, '카테고리': s.category, '목표 비중 (%)': initialPortfolio[s.id] || 0 })) });
+    
+    sheets.push({ 
+      name: '종목', 
+      data: (stocks || []).map(s => {
+        const details = resolveStockDetails(s);
+        return {
+          '종목명': s.name, 
+          '티커': s.ticker, 
+          '국가': details.country,
+          '대분류': details.category,
+          '투자구분': details.strategy,
+          '세부구분': details.subCategory,
+          '포트폴리오 그룹': details.subGroup,
+          '포트폴리오 포함': s.isPortfolio ? '예' : '아니오',
+          'ETF 여부': s.isEtf ? '예' : '아니오',
+          'ETF 유형': s.etfType || '',
+          '실부담비용률 (%)': s.isEtf ? (s.expenseRatio ?? '') : ''
+        };
+      }) 
+    });
+
+    sheets.push({ 
+      name: '포트폴리오', 
+      data: portfolioStocks.map(s => {
+        const details = resolveStockDetails(s);
+        return {
+          '종목명': s.name, 
+          '티커': s.ticker, 
+          '국가': details.country,
+          '대분류': details.category,
+          '투자구분': details.strategy,
+          '세부구분': details.subCategory,
+          '포트폴리오 그룹': details.subGroup,
+          '목표 비중 (%)': initialPortfolio[s.id] || 0 
+        };
+      }) 
+    });
     
     sheets.push({
         name: '매매기록',
@@ -138,7 +242,19 @@ export const exportAllData = (
             const account = accountMap.get(trade.accountId);
             const quantity = Number(trade.quantity) || 0;
             const price = Number(trade.price) || 0;
-            return { '일자': trade.date, '계좌': account || 'N/A', '종목명': stock?.name || 'N/A', '티커': stock?.ticker || 'N/A', '구분': trade.tradeType === TradeType.Buy ? '매수' : '매도', '수량': quantity, '단가': price, '금액': quantity * price, '매매방법': trade.tradeMethod, '목표': trade.goalId ? goalMap.get(trade.goalId) : '' };
+            return { 
+              '일자': trade.date, 
+              '계좌': account || 'N/A', 
+              '종목명': stock?.name || 'N/A', 
+              '티커': stock?.ticker || 'N/A', 
+              '구분': trade.tradeType === TradeType.Buy ? '매수' : '매도', 
+              '수량': quantity, 
+              '단가': price, 
+              '금액': quantity * price, 
+              '매매방법': trade.tradeMethod || '직접매매', 
+              '수수료/제세금': trade.customFeeAndTax !== undefined ? trade.customFeeAndTax : '',
+              '목표': trade.goalId ? goalMap.get(trade.goalId) : '' 
+            };
         })
     });
     
@@ -227,10 +343,68 @@ export const exportAllData = (
     }
     sheets.push({ name: '리밸런싱알림설정', data: alertSettingsData });
 
-    sheets.push({ name: '앱설정', data: [
+    if (retirementGoal) {
+      sheets.push({
+        name: '은퇴목표',
+        data: [{
+          '목표금액': retirementGoal.targetAmount,
+          '목표연도': retirementGoal.targetYear,
+          '목표월': retirementGoal.targetMonth || 1,
+          '기준연도': retirementGoal.currentYear,
+          '초기자산': retirementGoal.initialAssets ?? '',
+          '필요수익률': retirementGoal.initialRequiredCagr ?? ''
+        }]
+      });
+      if (retirementGoal.intermediateExpenses && retirementGoal.intermediateExpenses.length > 0) {
+        sheets.push({
+          name: '은퇴중간지출',
+          data: retirementGoal.intermediateExpenses.map(exp => ({
+            '항목명': exp.name,
+            '발생연도': exp.year,
+            '금액': exp.amount,
+            '반복여부': exp.isRecurring ? '예' : '아니오'
+          }))
+        });
+      }
+    }
+
+    const appSettingsData: { '설정명': string; '설정값': string }[] = [
         { '설정명': '백그라운드 조회 주기 (분)', '설정값': String(backgroundFetchInterval) },
         { '설정명': '홈 화면 요약 정보 표시', '설정값': showSummary ? '예' : '아니오' }
-    ]});
+    ];
+
+    if (homeScreenPreference) {
+      const screenNameMap: Record<string, string> = {
+        'HOME': '투자 현황',
+        'HOLDINGS_STATUS': '포트폴리오 가꾸기',
+        'GOAL_INVESTING': '목표 달성'
+      };
+      appSettingsData.push({ '설정명': '기본 홈 화면', '설정값': screenNameMap[homeScreenPreference] || homeScreenPreference });
+    }
+
+    if (feeSettings) {
+      appSettingsData.push({
+        '설정명': '동일 일자 매매 처리 방식',
+        '설정값': feeSettings.sameDayTradeOrder === 'buyFirst' ? '매수 우선' : feeSettings.sameDayTradeOrder === 'inputOrder' ? '입력 순서' : '매도 우선'
+      });
+      if (feeSettings.buyFeeRate !== undefined) {
+        appSettingsData.push({ '설정명': '매수 수수료율 (%)', '설정값': String((feeSettings.buyFeeRate * 100).toFixed(4)) });
+      }
+      if (feeSettings.sellFeeRate !== undefined) {
+        appSettingsData.push({ '설정명': '매도 수수료율 (%)', '설정값': String((feeSettings.sellFeeRate * 100).toFixed(4)) });
+      }
+      if (feeSettings.stockTaxRate !== undefined) {
+        appSettingsData.push({ '설정명': '주식 제세금 (%)', '설정값': String(feeSettings.stockTaxRate) });
+      }
+      if (feeSettings.etfTaxRate !== undefined) {
+        appSettingsData.push({ '설정명': 'ETF 매매세율 (%)', '설정값': String(feeSettings.etfTaxRate) });
+      }
+      if (feeSettings.etfDividendTaxRate !== undefined) {
+        appSettingsData.push({ '설정명': '배당소득세율 (%)', '설정값': String(feeSettings.etfDividendTaxRate) });
+      }
+    }
+
+    sheets.push({ name: '앱설정', data: appSettingsData });
 
     exportToExcel(sheets, fileName);
 };

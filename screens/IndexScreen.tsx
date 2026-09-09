@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
-import { Broker, Account, Stock, InitialPortfolio, PortfolioCategory, Trade, AccountTransaction, BankAccount, Theme, TradeType, TransactionType, MonthlyAccountValue, HistoricalGain, AlertThresholds, Screen, InvestmentGoal, FeeSettings } from '../types';
+import { Broker, Account, Stock, InitialPortfolio, PortfolioCategory, Trade, AccountTransaction, BankAccount, Theme, TradeType, TransactionType, MonthlyAccountValue, HistoricalGain, AlertThresholds, Screen, InvestmentGoal, FeeSettings, RetirementGoal } from '../types';
 import { PORTFOLIO_CATEGORIES, DATA_VERSION } from '../constants';
 import { exportAllData } from '../services/exportService';
 import * as XLSX from 'xlsx';
@@ -247,6 +247,8 @@ interface IndexScreenProps {
   user: User | null;
   feeSettings: FeeSettings;
   setFeeSettings: React.Dispatch<React.SetStateAction<FeeSettings>>;
+  retirementGoal?: RetirementGoal | null;
+  setRetirementGoal?: React.Dispatch<React.SetStateAction<RetirementGoal | null>>;
   onSyncFromCloud?: () => Promise<void>;
   onBackupToCloud?: () => Promise<void>;
   onLogin?: () => void;
@@ -310,6 +312,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   user,
   feeSettings,
   setFeeSettings,
+  retirementGoal,
+  setRetirementGoal,
   onSyncFromCloud,
   onBackupToCloud,
   onLogin,
@@ -1020,7 +1024,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
   const LOCAL_STORAGE_KEYS = [
     'theme', 'app-password', 'brokers', 'accounts', 'stocks', 'trades',
     'transactions', 'initialPortfolio', 'monthlyValues', 'data-version', 'bankAccounts',
-    'historicalGains', 'alertThresholds', 'backgroundFetchInterval', 'showSummary', 'investmentGoals'
+    'historicalGains', 'alertThresholds', 'backgroundFetchInterval', 'showSummary', 'investmentGoals',
+    'retirementGoal', 'feeSettings', 'homeScreenPreference'
   ];
   
   const handleImportClick = () => {
@@ -1116,13 +1121,25 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
       const accountsData = safeSheetToJSON(workbook, '증권계좌');
       const newAccounts: Account[] = [];
       const accountNameToIdMap = new Map<string, string>();
-      accountsData.forEach(row => {
+      accountsData.forEach((row, idx) => {
           const name = row['계좌명']?.trim();
           const brokerName = row['증권사']?.trim();
           const brokerId = brokerNameToIdMap.get(brokerName);
+          const accountType = (row['계좌유형']?.trim() || '일반') as any;
+          const isTaxFree = row['비과세/절세여부'] === '예' || row['비과세'] === '예';
+          const orderRaw = row['표시순서'];
+          const order = orderRaw !== undefined && orderRaw !== '' ? parseInt(String(orderRaw), 10) : (idx + 1);
+
           if (name && brokerId && !accountNameToIdMap.has(name)) {
               const newId = `acc-${Date.now()}-${Math.random()}`;
-              newAccounts.push({ id: newId, name, brokerId });
+              newAccounts.push({ 
+                id: newId, 
+                name, 
+                brokerId,
+                accountType,
+                isTaxFree,
+                order: isNaN(order) ? (idx + 1) : order
+              });
               accountNameToIdMap.set(name, newId);
           }
       });
@@ -1135,14 +1152,30 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
       stocksData.forEach(row => {
           const name = row['종목명']?.trim();
           const ticker = row['티커']?.trim().toUpperCase();
-          const category = row['카테고리'] as PortfolioCategory;
-          const isPortfolio = row['포트폴리오 포함'] === '예';
-          const isEtf = row['ETF 여부'] === '예';
+          const category = (row['카테고리'] || row['대분류']) as PortfolioCategory;
+          const isPortfolio = row['포트폴리오 포함'] === '예' || row['포트폴리오'] === '예';
+          const isEtf = row['ETF 여부'] === '예' || row['ETF'] === '예';
           const expenseRatio = isEtf ? parseFloat(row['실부담비용률 (%)']) : undefined;
+          const country = (row['국가']?.trim() || (/^\d{6}$/.test(ticker) ? '한국' : '미국')) as '한국' | '미국' | '기타';
+          const stockStrategy = row['투자구분']?.trim() || row['투자전략']?.trim() || row['전략']?.trim();
+          const subCategory = row['세부구분']?.trim() || row['세부 카테고리']?.trim();
+          const etfType = row['ETF 유형']?.trim();
 
           if (name && ticker && category && !stockTickerToIdMap.has(ticker)) {
               const newId = `stock-${Date.now()}-${Math.random()}`;
-              newStocks.push({ id: newId, name, ticker, category, isPortfolio, isEtf, expenseRatio });
+              newStocks.push({ 
+                id: newId, 
+                name, 
+                ticker, 
+                category, 
+                country,
+                stockStrategy,
+                subCategory: subCategory as any,
+                isPortfolio, 
+                isEtf, 
+                etfType: etfType as any,
+                expenseRatio: isNaN(expenseRatio as number) ? undefined : expenseRatio 
+              });
               stockTickerToIdMap.set(ticker, newId);
           }
       });
@@ -1214,6 +1247,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
         const price = parseFloat(row['단가']);
         const tradeMethod = row['매매방법']?.trim() || '직접매매';
         const goalName = row['목표']?.trim();
+        const customFeeAndTaxRaw = row['수수료/제세금'];
+        const customFeeAndTax = (customFeeAndTaxRaw !== undefined && customFeeAndTaxRaw !== '') ? parseFloat(String(customFeeAndTaxRaw)) : undefined;
 
         const accountId = accountNameToIdMap.get(accountName);
         const stockId = stockTickerToIdMap.get(ticker);
@@ -1223,7 +1258,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
         if (date && accountId && stockId && !isNaN(quantity) && !isNaN(price)) {
             newTrades.push({
                 id: `trade-${Date.now()}-${Math.random()}`,
-                date, accountId, stockId, quantity, price, tradeType, tradeMethod, goalId
+                date, accountId, stockId, quantity, price, tradeType, tradeMethod, goalId,
+                customFeeAndTax: isNaN(customFeeAndTax as number) ? undefined : customFeeAndTax
             });
         }
       });
@@ -1241,6 +1277,7 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           const amount = parseFloat(row['금액']);
           const counterpartyName = row['상대계좌']?.trim();
           const goalName = row['목표']?.trim();
+          const memo = row['메모']?.trim();
           
           const accountId = accountNameToIdMap.get(accountName);
           const transactionType = txTypeStr === '입금' ? TransactionType.Deposit : TransactionType.Withdrawal;
@@ -1250,7 +1287,8 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           if (date && accountId && !isNaN(amount)) {
               newTransactions.push({
                   id: `tx-${Date.now()}-${Math.random()}`,
-                  date, accountId, amount, transactionType, counterpartyAccountId, goalId
+                  date, accountId, amount, transactionType, counterpartyAccountId, goalId,
+                  memo: memo || undefined
               });
           }
       });
@@ -1360,18 +1398,76 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           }
       });
 
+      // 은퇴목표 변환
+      const retirementGoalData = safeSheetToJSON(workbook, '은퇴목표');
+      const retirementExpensesData = safeSheetToJSON(workbook, '은퇴중간지출');
+      let newRetirementGoal: RetirementGoal | null = null;
+      if (retirementGoalData.length > 0) {
+        const row = retirementGoalData[0];
+        const targetAmount = parseFloat(row['목표금액']);
+        const targetYear = parseInt(String(row['목표연도']), 10);
+        const targetMonth = row['목표월'] ? parseInt(String(row['목표월']), 10) : 1;
+        const currentYear = row['기준연도'] ? parseInt(String(row['기준연도']), 10) : new Date().getFullYear();
+        const initialAssets = row['초기자산'] ? parseFloat(row['초기자산']) : undefined;
+        const initialRequiredCagr = row['필요수익률'] ? parseFloat(row['필요수익률']) : undefined;
+        const intermediateExpenses = retirementExpensesData.map((expRow: any) => ({
+          name: String(expRow['항목명'] || ''),
+          year: parseInt(String(expRow['발생연도']), 10) || currentYear,
+          amount: parseFloat(expRow['금액']) || 0,
+          isRecurring: expRow['반복여부'] === '예'
+        }));
+
+        if (!isNaN(targetAmount) && !isNaN(targetYear)) {
+          newRetirementGoal = { 
+            targetAmount, 
+            targetYear, 
+            targetMonth, 
+            currentYear,
+            initialAssets: isNaN(initialAssets as number) ? undefined : initialAssets,
+            initialRequiredCagr: isNaN(initialRequiredCagr as number) ? undefined : initialRequiredCagr,
+            intermediateExpenses 
+          };
+        }
+      }
+
       setImportStatus('데이터 변환 중 (13/13): 앱 설정...');
       const appSettingsData = safeSheetToJSON(workbook, '앱설정');
       let newBackgroundFetchInterval = 30;
       let newShowSummary = true;
+      let newHomeScreenPreference: 'HOME' | 'HOLDINGS_STATUS' | 'GOAL_INVESTING' = 'HOME';
+      let newFeeSettings: FeeSettings = { ...feeSettings };
+
       appSettingsData.forEach(row => {
-          const settingName = row['설정명'];
-          const settingValue = row['설정값'];
+          const settingName = row['설정명']?.trim();
+          const settingValue = String(row['설정값'] ?? '').trim();
           if (settingName === '백그라운드 조회 주기 (분)') {
               const interval = parseInt(settingValue, 10);
               if (!isNaN(interval) && interval > 0) newBackgroundFetchInterval = interval;
           } else if (settingName === '홈 화면 요약 정보 표시') {
               newShowSummary = settingValue === '예';
+          } else if (settingName === '기본 홈 화면') {
+              if (settingValue === '포트폴리오 가꾸기' || settingValue === 'HOLDINGS_STATUS') newHomeScreenPreference = 'HOLDINGS_STATUS';
+              else if (settingValue === '목표 달성' || settingValue === 'GOAL_INVESTING') newHomeScreenPreference = 'GOAL_INVESTING';
+              else newHomeScreenPreference = 'HOME';
+          } else if (settingName === '동일 일자 매매 처리 방식') {
+              if (settingValue === '매수 우선') newFeeSettings.sameDayTradeOrder = 'buyFirst';
+              else if (settingValue === '입력 순서') newFeeSettings.sameDayTradeOrder = 'inputOrder';
+              else newFeeSettings.sameDayTradeOrder = 'sellFirst';
+          } else if (settingName === '매수 수수료율 (%)') {
+              const rate = parseFloat(settingValue.replace('%', ''));
+              if (!isNaN(rate)) newFeeSettings.buyFeeRate = rate / 100;
+          } else if (settingName === '매도 수수료율 (%)') {
+              const rate = parseFloat(settingValue.replace('%', ''));
+              if (!isNaN(rate)) newFeeSettings.sellFeeRate = rate / 100;
+          } else if (settingName === '주식 제세금 (%)') {
+              const rate = parseFloat(settingValue.replace('%', ''));
+              if (!isNaN(rate)) newFeeSettings.stockTaxRate = rate;
+          } else if (settingName === 'ETF 매매세율 (%)') {
+              const rate = parseFloat(settingValue.replace('%', ''));
+              if (!isNaN(rate)) newFeeSettings.etfTaxRate = rate;
+          } else if (settingName === '배당소득세율 (%)') {
+              const rate = parseFloat(settingValue.replace('%', ''));
+              if (!isNaN(rate)) newFeeSettings.etfDividendTaxRate = rate;
           }
       });
 
@@ -1383,8 +1479,10 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
           backgroundFetchInterval: newBackgroundFetchInterval,
           showSummary: newShowSummary,
           theme: Theme.Light, // Default
-          homeScreenPreference: 'HOME' // Default
-        });
+          homeScreenPreference: newHomeScreenPreference,
+          retirementGoal: newRetirementGoal,
+          feeSettings: newFeeSettings
+        }, { merge: true });
       }
 
       const keysToClear = LOCAL_STORAGE_KEYS.filter(key => key !== 'theme' && key !== 'app-password');
@@ -1405,6 +1503,11 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
       localStorage.setItem('alertThresholds', JSON.stringify(newAlertThresholds));
       localStorage.setItem('backgroundFetchInterval', JSON.stringify(newBackgroundFetchInterval));
       localStorage.setItem('showSummary', JSON.stringify(newShowSummary));
+      localStorage.setItem('homeScreenPreference', JSON.stringify(newHomeScreenPreference));
+      localStorage.setItem('feeSettings', JSON.stringify(newFeeSettings));
+      if (newRetirementGoal) {
+        localStorage.setItem('retirementGoal', JSON.stringify(newRetirementGoal));
+      }
       localStorage.setItem('data-version', String(DATA_VERSION));
 
       setImportStatus('불러오기 완료! 앱을 새로고침합니다.');
@@ -1445,7 +1548,10 @@ const IndexScreen: React.FC<IndexScreenProps> = ({
       backgroundFetchInterval,
       showSummary,
       investmentGoals,
-      `투자 관리 앱 전체 데이터_${new Date().toISOString().split('T')[0]}`
+      `투자 관리 앱 전체 데이터_${new Date().toISOString().split('T')[0]}`,
+      retirementGoal,
+      feeSettings,
+      homeScreenPreference
     );
   };
 
