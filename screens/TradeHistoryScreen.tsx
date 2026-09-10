@@ -6,7 +6,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Trade, TradeType, Account, Stock, InvestmentGoal, FeeSettings } from '../types';
 import { ArrowDownCircleIcon, ArrowUpCircleIcon, Cog8ToothIcon, CalendarDaysIcon } from '../components/Icons';
-import { calculateTradeFeeAndTax } from '../services/feeService';
+import { calculateTradeFeeAndTax, sortTradesForProcessing } from '../services/feeService';
 
 interface TradeHistoryScreenProps {
   trades: Trade[];
@@ -108,22 +108,8 @@ const TradeHistoryScreen: React.FC<TradeHistoryScreenProps> = ({ trades, setTrad
   
   const tradesWithPL = useMemo((): TradeWithPL[] => {
     const holdings: { [stockId: string]: { quantity: number; totalCost: number } } = {};
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
-    const sortedTrades = [...(trades || [])].sort((a, b) => {
-      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      if (order === 'inputOrder') {
-        return (a.id || '').localeCompare(b.id || '');
-      }
-      if (a.tradeType !== b.tradeType) {
-        if (order === 'buyFirst') {
-          return a.tradeType === TradeType.Buy ? -1 : 1;
-        } else {
-          return a.tradeType === TradeType.Sell ? -1 : 1;
-        }
-      }
-      return (a.id || '').localeCompare(b.id || '');
-    });
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
+    const sortedTrades = sortTradesForProcessing(trades || [], order);
 
     return sortedTrades.map(trade => {
         if (!trade.stockId) return trade;

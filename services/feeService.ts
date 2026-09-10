@@ -171,3 +171,128 @@ export function calculateAccountCashBalance(
 
   return netCashFromTransactions + totalSellProceeds - totalBuyCost + historicalPnlForAccount;
 }
+
+/**
+ * 매매 기록을 날짜순 및 동일 일자 매매 처리 방식에 맞추어 지능적으로 정렬하는 함수.
+ * '선매도 후매수'를 선택한 경우라도, 당일 이전 보유 수량(Prior Holding)이 0이거나
+ * 매도량에 미달하는 경우(공매도 불가능한 정상 계좌) 당일 매수분을 먼저 처리하여
+ * '당일 1주 매수 후 1주 매도 시 잔고가 여전히 1주로 남는 오류'를 완벽히 차단합니다.
+ */
+export function sortTradesForProcessing(
+  trades: Trade[],
+  orderPreference: 'buyFirst' | 'sellFirst' | 'inputOrder' = 'buyFirst'
+): Trade[] {
+  if (!trades || trades.length <= 1) return trades ? [...trades] : [];
+
+  // 1. 날짜별 그룹화 (YYYY-MM-DD 기준)
+  const dateMap = new Map<string, Trade[]>();
+  trades.forEach(t => {
+    if (!t) return;
+    const dStr = (t.date ? String(t.date).split('T')[0] : '').trim();
+    if (!dateMap.has(dStr)) {
+      dateMap.set(dStr, []);
+    }
+    dateMap.get(dStr)!.push(t);
+  });
+
+  // 날짜 오름차순 정렬
+  const sortedDates = Array.from(dateMap.keys()).sort((a, b) => {
+    const timeA = new Date(a).getTime();
+    const timeB = new Date(b).getTime();
+    if (isNaN(timeA) || isNaN(timeB)) return a.localeCompare(b);
+    return timeA - timeB;
+  });
+
+  // 누적 보유 수량 추적 (key: `${accountId || 'global'}_${stockId}`)
+  const cumulativeHoldings = new Map<string, number>();
+  const finalSortedTrades: Trade[] = [];
+
+  for (const dStr of sortedDates) {
+    const dayTrades = dateMap.get(dStr)!;
+
+    // 계좌 및 종목별로 그룹 분리
+    const subGroups = new Map<string, Trade[]>();
+    dayTrades.forEach(t => {
+      const key = `${t.accountId || 'global'}_${t.stockId || ''}`;
+      if (!subGroups.has(key)) subGroups.set(key, []);
+      subGroups.get(key)!.push(t);
+    });
+
+    for (const [key, groupTrades] of subGroups.entries()) {
+      const priorQty = cumulativeHoldings.get(key) || 0;
+      const buys = groupTrades.filter(t => t.tradeType === TradeType.Buy);
+      const sells = groupTrades.filter(t => t.tradeType === TradeType.Sell);
+
+      let sortedGroup: Trade[] = [];
+
+      if (buys.length === 0 || sells.length === 0) {
+        // 매수만 있거나 매도만 있는 경우 ID순 정렬
+        sortedGroup = groupTrades.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      } else if (orderPreference === 'buyFirst') {
+        // 선매수 후매도: 당일 매수 전량 선반영 후 매도 반영
+        sortedGroup = [
+          ...buys.sort((a, b) => (a.id || '').localeCompare(b.id || '')),
+          ...sells.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+        ];
+      } else if (orderPreference === 'sellFirst') {
+        // 선매도 후매수:
+        // 단, 당일 거래 이전 보유량이 0주 이하이면 없는 주식을 팔 수 없으므로(당일 단타)
+        // 무조건 당일 매수가 먼저 실행되어야 음수 클램핑 오류가 생기지 않음
+        if (priorQty <= 1e-9) {
+          sortedGroup = [
+            ...buys.sort((a, b) => (a.id || '').localeCompare(b.id || '')),
+            ...sells.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+          ];
+        } else {
+          // 기존 보유분이 있는 경우: 기존 보유 수량 범위 내 매도는 먼저 실행하고, 초과 매도는 매수 뒤로 배치
+          let coveredSellQty = 0;
+          const earlySells: Trade[] = [];
+          const lateSells: Trade[] = [];
+
+          sells.forEach(s => {
+            const sQty = Number(s.quantity) || 0;
+            if (coveredSellQty + sQty <= priorQty + 1e-9) {
+              earlySells.push(s);
+              coveredSellQty += sQty;
+            } else {
+              lateSells.push(s);
+            }
+          });
+
+          sortedGroup = [
+            ...earlySells.sort((a, b) => (a.id || '').localeCompare(b.id || '')),
+            ...buys.sort((a, b) => (a.id || '').localeCompare(b.id || '')),
+            ...lateSells.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+          ];
+        }
+      } else {
+        // 'inputOrder' (입력 순서):
+        // 입력 순서대로 처리하되, 사전 잔고가 0인데 매도가 먼저 오면 잔고 왜곡이 생기므로 매수 우선 보호
+        if (priorQty <= 1e-9) {
+          sortedGroup = [
+            ...buys.sort((a, b) => (a.id || '').localeCompare(b.id || '')),
+            ...sells.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+          ];
+        } else {
+          sortedGroup = groupTrades.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+        }
+      }
+
+      // 누적 수량 업데이트 및 최종 결과에 추가
+      let updatedQty = priorQty;
+      sortedGroup.forEach(t => {
+        const q = Number(t.quantity) || 0;
+        if (t.tradeType === TradeType.Buy) {
+          updatedQty += q;
+        } else {
+          updatedQty -= q;
+          if (updatedQty < 1e-9) updatedQty = 0;
+        }
+        finalSortedTrades.push(t);
+      });
+      cumulativeHoldings.set(key, updatedQty);
+    }
+  }
+
+  return finalSortedTrades;
+}

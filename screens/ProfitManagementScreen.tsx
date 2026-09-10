@@ -5,7 +5,7 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Trade, Stock, Account, AccountTransaction, TradeType, TransactionType, Screen, HistoricalGain, FeeSettings } from '../types';
-import { calculateTradeFeeAndTax, calculateDividendTax, isTaxFreeAccount } from '../services/feeService';
+import { calculateTradeFeeAndTax, calculateDividendTax, isTaxFreeAccount, sortTradesForProcessing } from '../services/feeService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { CurrencyWonIcon, BanknotesIcon, Cog8ToothIcon, ChartBarIcon, CircleStackIcon, CalendarDaysIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
 
@@ -156,22 +156,8 @@ const RealizedGainsView: React.FC<RealizedGainsViewProps> = ({ trades, stocks, a
 
   const combinedGainsData = useMemo(() => {
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
-    const sortedTrades = [...(trades || [])].sort((a, b) => {
-      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      if (order === 'inputOrder') {
-        return (a.id || '').localeCompare(b.id || '');
-      }
-      if (a.tradeType !== b.tradeType) {
-        if (order === 'buyFirst') {
-          return a.tradeType === TradeType.Buy ? -1 : 1;
-        } else {
-          return a.tradeType === TradeType.Sell ? -1 : 1;
-        }
-      }
-      return (a.id || '').localeCompare(b.id || '');
-    });
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
+    const sortedTrades = sortTradesForProcessing(trades || [], order);
     const sellTradesWithPL: any[] = [];
     const accountsMapObj = new Map((accounts || []).map(a => [a.id, a]));
 
@@ -398,23 +384,8 @@ const DividendsView: React.FC<DividendsViewProps> = ({ transactions, setTransact
     const stockTotalCosts = useMemo(() => {
         const holdingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
 
-        const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
-        [...(trades || [])]
-        .sort((a, b) => {
-            const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-            if (dateDiff !== 0) return dateDiff;
-            if (order === 'inputOrder') {
-                return (a.id || '').localeCompare(b.id || '');
-            }
-            if (a.tradeType !== b.tradeType) {
-                if (order === 'buyFirst') {
-                    return a.tradeType === TradeType.Buy ? -1 : 1;
-                } else {
-                    return a.tradeType === TradeType.Sell ? -1 : 1;
-                }
-            }
-            return (a.id || '').localeCompare(b.id || '');
-        })
+        const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
+        sortTradesForProcessing(trades || [], order)
         .forEach(trade => {
             if (!trade || !trade.stockId) return;
             if (!holdingsMap[trade.stockId]) {
@@ -643,22 +614,8 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
     const accountMap = new Map((accounts || []).map(a => [a.id, a]));
 
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
-    const sortedTrades = [...(trades || [])].sort((a, b) => {
-      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      if (order === 'inputOrder') {
-        return (a.id || '').localeCompare(b.id || '');
-      }
-      if (a.tradeType !== b.tradeType) {
-        if (order === 'buyFirst') {
-          return a.tradeType === TradeType.Buy ? -1 : 1;
-        } else {
-          return a.tradeType === TradeType.Sell ? -1 : 1;
-        }
-      }
-      return (a.id || '').localeCompare(b.id || '');
-    });
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
+    const sortedTrades = sortTradesForProcessing(trades || [], order);
     let totalPnlFromTrades = 0;
 
     sortedTrades.forEach(trade => {
@@ -709,22 +666,8 @@ const ProfitManagementScreen: React.FC<ProfitManagementScreenProps> = ({ trades,
     const accountMap = new Map((accounts || []).map(a => [a.id, a]));
 
     const holdings: { [key: string]: { quantity: number; totalCost: number } } = {};
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
-    const sortedTrades = [...(trades || [])].sort((a, b) => {
-      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      if (order === 'inputOrder') {
-        return (a.id || '').localeCompare(b.id || '');
-      }
-      if (a.tradeType !== b.tradeType) {
-        if (order === 'buyFirst') {
-          return a.tradeType === TradeType.Buy ? -1 : 1;
-        } else {
-          return a.tradeType === TradeType.Sell ? -1 : 1;
-        }
-      }
-      return (a.id || '').localeCompare(b.id || '');
-    });
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
+    const sortedTrades = sortTradesForProcessing(trades || [], order);
     let totalFeesAndTaxes = 0;
 
     sortedTrades.forEach(trade => {

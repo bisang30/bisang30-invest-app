@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { calculateTradeFeeAndTax, calculateAccountCashBalance } from '../services/feeService';
+import { calculateTradeFeeAndTax, calculateAccountCashBalance, sortTradesForProcessing } from '../services/feeService';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Stock, TradeType, HistoricalGain, PortfolioCategory, FeeSettings } from '../types';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -153,25 +153,12 @@ const AssetAllocationScreen: React.FC<AssetAllocationScreenProps> = ({
 
   // 1. Calculate holdings and cash per account (similar logic to AccountStatusScreen)
   const accountDetails = useMemo(() => {
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
     return (accounts || []).map(account => {
-      const accountTrades = (trades || [])
-        .filter(t => t.accountId === account.id)
-        .sort((a, b) => {
-          const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-          if (dateDiff !== 0) return dateDiff;
-          if (order === 'inputOrder') {
-            return (a.id || '').localeCompare(b.id || '');
-          }
-          if (a.tradeType !== b.tradeType) {
-            if (order === 'buyFirst') {
-              return a.tradeType === TradeType.Buy ? -1 : 1;
-            } else {
-              return a.tradeType === TradeType.Sell ? -1 : 1;
-            }
-          }
-          return (a.id || '').localeCompare(b.id || '');
-        });
+      const accountTrades = sortTradesForProcessing(
+        (trades || []).filter(t => t.accountId === account.id),
+        order
+      );
 
       // Evaluate Stock quantities
       const accountHoldingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};

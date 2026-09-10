@@ -7,7 +7,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Account, Broker, Trade, AccountTransaction, TransactionType, Screen, BankAccount, Stock, TradeType, HistoricalGain, FeeSettings } from '../types';
 import { ArrowTrendingUpIcon, ArrowTrendingDownIcon, WalletIcon, IdentificationIcon, ChevronDownIcon, ChevronUpIcon, ArrowsUpDownIcon } from '../components/Icons';
-import { calculateTradeFeeAndTax, calculateAccountCashBalance } from '../services/feeService';
+import { calculateTradeFeeAndTax, calculateAccountCashBalance, sortTradesForProcessing } from '../services/feeService';
 import DepositBreakdownModal from '../components/DepositBreakdownModal';
 import AccountOrderModal from '../components/AccountOrderModal';
 
@@ -96,25 +96,12 @@ const AccountStatusScreen: React.FC<AccountStatusScreenProps> = ({
   };
 
   const accountDetails = useMemo(() => {
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
     return sortedAccounts.map(account => {
-      const accountTrades = (trades || [])
-        .filter(t => t.accountId === account.id)
-        .sort((a, b) => {
-          const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-          if (dateDiff !== 0) return dateDiff;
-          if (order === 'inputOrder') {
-            return (a.id || '').localeCompare(b.id || '');
-          }
-          if (a.tradeType !== b.tradeType) {
-            if (order === 'buyFirst') {
-              return a.tradeType === TradeType.Buy ? -1 : 1;
-            } else {
-              return a.tradeType === TradeType.Sell ? -1 : 1;
-            }
-          }
-          return (a.id || '').localeCompare(b.id || '');
-        });
+      const accountTrades = sortTradesForProcessing(
+        (trades || []).filter(t => t.accountId === account.id),
+        order
+      );
       
       const accountHoldingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
       accountTrades.forEach(trade => {

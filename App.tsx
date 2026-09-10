@@ -51,7 +51,7 @@ const DEFAULT_FEE_SETTINGS: FeeSettings = {
   etfTaxRate: 0,
   stockDividendTaxRate: 0,
   etfDividendTaxRate: 15.4,
-  sameDayTradeOrder: 'sellFirst'
+  sameDayTradeOrder: 'buyFirst'
 };
 
 const DEFAULT_STOCKS: Stock[] = [

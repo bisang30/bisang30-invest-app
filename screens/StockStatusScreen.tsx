@@ -6,7 +6,7 @@ import { Trade, Stock, TradeType, InitialPortfolio, PortfolioCategory, FeeSettin
 import { PORTFOLIO_CATEGORIES } from '../constants';
 import { ChevronDownIcon, ChevronUpIcon, BanknotesIcon, CircleStackIcon, ChartBarIcon, CurrencyWonIcon, ChartLineIcon } from '../components/Icons';
 import { normalizeCategory } from './IndexScreen';
-import { calculateAccountCashBalance } from '../services/feeService';
+import { calculateAccountCashBalance, sortTradesForProcessing } from '../services/feeService';
 
 interface StockStatusScreenProps {
   trades: Trade[];
@@ -70,25 +70,9 @@ const StockStatusScreen: React.FC<StockStatusScreenProps> = ({
 
   const holdingsByCategory = useMemo(() => {
     const holdingsMap: { [stockId: string]: { quantity: number; totalCost: number } } = {};
-    const order = feeSettings?.sameDayTradeOrder || 'sellFirst';
+    const order = feeSettings?.sameDayTradeOrder || 'buyFirst';
 
-    // Critical fix: Sort trades by date and type/order to ensure correct calculation of quantity and average cost.
-    [...(trades || [])]
-      .sort((a, b) => {
-        const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (dateDiff !== 0) return dateDiff;
-        if (order === 'inputOrder') {
-          return (a.id || '').localeCompare(b.id || '');
-        }
-        if (a.tradeType !== b.tradeType) {
-          if (order === 'buyFirst') {
-            return a.tradeType === TradeType.Buy ? -1 : 1;
-          } else {
-            return a.tradeType === TradeType.Sell ? -1 : 1;
-          }
-        }
-        return (a.id || '').localeCompare(b.id || '');
-      })
+    sortTradesForProcessing(trades || [], order)
       .forEach(trade => {
         if (!trade || !trade.stockId) return;
 
